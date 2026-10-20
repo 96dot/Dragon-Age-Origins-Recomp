@@ -13,6 +13,7 @@ cbuffer DaoCopyConstants : register(b0) {
   int2 dao_copy_source_offset;
   int2 dao_copy_dest_offset;
   uint2 dao_copy_size;
+  int2 dao_copy_source_min;
 };
 
 [numthreads(8, 8, 1)]
@@ -20,7 +21,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   if (any(id.xy >= dao_copy_size)) {
     return;
   }
-  int2 source = int2(id.xy) + dao_copy_source_offset;
+  int2 source = max(int2(id.xy) + dao_copy_source_offset, dao_copy_source_min);
 #ifdef DAO_COPY_MSAA
   DAO_COPY_TYPE value = dao_copy_source.Load(source, 0);
 #else

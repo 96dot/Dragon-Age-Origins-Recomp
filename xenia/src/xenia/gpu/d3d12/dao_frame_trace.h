@@ -157,6 +157,14 @@ inline void LogDraw(const RegisterFile& regs, uint64_t vs_hash,
   }
   const auto depth = regs.Get<reg::RB_DEPTH_INFO>();
   const auto depth_control = regs.Get<reg::RB_DEPTHCONTROL>();
+  const auto vertex_transform = regs.Get<reg::PA_CL_VTE_CNTL>();
+  const auto clip_control = regs.Get<reg::PA_CL_CLIP_CNTL>();
+  line += fmt::format(" | z {} write {} func {} xy_fmt {} clip_disabled {}",
+                      uint32_t(depth_control.z_enable),
+                      uint32_t(depth_control.z_write_enable),
+                      uint32_t(depth_control.zfunc),
+                      uint32_t(vertex_transform.vtx_xy_fmt),
+                      uint32_t(clip_control.clip_disable));
   if (depth_control.z_enable || depth_control.stencil_enable) {
     line += fmt::format(
         " | DS {} base {}",

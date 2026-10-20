@@ -392,6 +392,7 @@ class DaoUpscalerImpl {
     int32_t source_offset[2];
     int32_t dest_offset[2];
     uint32_t size[2];
+    int32_t source_min[2];
   };
   struct CompositeConstants {
     uint32_t dest_size[2];

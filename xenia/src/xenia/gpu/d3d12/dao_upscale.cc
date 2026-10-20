@@ -13,8 +13,11 @@
 #include "xenia/gpu/d3d12/dao_frame_guard.h"
 #include "xenia/gpu/d3d12/dao_gpu_timing.h"
 #include "xenia/gpu/graphics_system.h"
+#include "xenia/gpu/gpu_flags.h"
 #include "xenia/ui/d3d12/d3d12_presenter.h"
 #include "xenia/ui/d3d12/dao_streamline.h"
+
+DECLARE_bool(resolve_resolution_scale_fill_half_pixel_offset);
 
 DEFINE_string(dao_temporal_upscaler, "off",
               "Temporal upscaling and anti-aliasing of 3D scenes: off, auto "
@@ -32,6 +35,14 @@ DEFINE_bool(dao_single_sample_scene, true,
 DEFINE_bool(dao_motion_vectors, true,
             "Motion vectors for temporal upscaling (false: zero motion, for "
             "comparison).",
+            "GPU");
+DEFINE_bool(dao_temporal_jitter, true,
+            "Jitter scene draws for temporal upscaling (false: no jitter, "
+            "for diagnosing flicker; reduces anti-aliasing quality).",
+            "GPU");
+DEFINE_bool(dao_upscale_ui, true,
+            "Composite the game's UI over the upscaled scene (false: show "
+            "the scene alone, for diagnosing compositing artifacts).",
             "GPU");
 DEFINE_bool(dao_true_hdr, true,
             "With HDR output on an HDR display, the game's 3D scenes in HDR: "
@@ -442,7 +453,10 @@ void DaoUpscalerImpl::OnDraw(const RegisterFile& regs,
       !render_size_[0] ||
       2 * surface.surface_pitch * rtc_.draw_resolution_scale_x() >=
           render_size_[0];
-  if (jitter_active_ && depth_control.z_enable &&
+  const bool scene_geometry =
+      !regs.Get<reg::PA_CL_VTE_CNTL>().vtx_xy_fmt &&
+      !regs.Get<reg::PA_CL_CLIP_CNTL>().clip_disable;
+  if (jitter_active_ && scene_geometry && depth_control.z_enable &&
       ((surface.msaa_samples != xenos::MsaaSamples::k1X && scene_wide) ||
        single_sample_scene_draw)) {
     ++scene_draws_;
@@ -604,6 +618,15 @@ void DaoUpscalerImpl::CaptureHudless() {
   CopyConstants constants = {};
   constants.size[0] = std::min(render_size_[0], uint32_t(source_desc.Width));
   constants.size[1] = std::min(render_size_[1], uint32_t(source_desc.Height));
+  const RegisterFile& regs = rtc_.register_file();
+  if (cvars::resolve_resolution_scale_fill_half_pixel_offset &&
+      cvars::half_pixel_offset &&
+      regs.Get<reg::PA_SU_VTX_CNTL>().pix_center ==
+          xenos::PixelCenter::kD3DZero &&
+      !key.scale_native) {
+    constants.source_min[0] = int32_t(rtc_.draw_resolution_scale_x() >> 1);
+    constants.source_min[1] = int32_t(rtc_.draw_resolution_scale_y() >> 1);
+  }
   CopyFromRenderTarget(source, srv, *target,
                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, color_,
                        copy_color_pipeline_.Get(), constants);
@@ -680,7 +703,7 @@ void DaoUpscalerImpl::OnResolve(const draw_util::ResolveInfo& resolve_info) {
     srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Texture2D.MipLevels = 1;
   }
-  CopyConstants constants;
+  CopyConstants constants = {};
   for (uint32_t i = 0; i < 2; ++i) {
     constants.source_offset[i] = screen[i] + source_offset[i];
     constants.dest_offset[i] = screen[i];
@@ -1095,6 +1118,9 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
   srv.Format = color_.format;
   device->CreateShaderResourceView(color_.resource.Get(), &srv,
                                    descriptors[2].first);
+  if (!cvars::dao_upscale_ui) {
+    descriptors[1] = descriptors[2];
+  }
   srv.Format = motion_vectors_.format;
   device->CreateShaderResourceView(motion_vectors_.resource.Get(), &srv,
                                    descriptors[3].first);
@@ -1315,7 +1341,7 @@ void DaoUpscalerImpl::EndFrame(bool upscaled, const char* reason) {
 
   // Next frame's jitter.
   jitter_[0] = jitter_[1] = 0.0f;
-  if (jitter_active_) {
+  if (jitter_active_ && cvars::dao_temporal_jitter) {
     jitter_index_ = (jitter_index_ + 1) % backend_->JitterPhases();
     float x, y;
     backend_->JitterOffset(jitter_index_, x, y);
