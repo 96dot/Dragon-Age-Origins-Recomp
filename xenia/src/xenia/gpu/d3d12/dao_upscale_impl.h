@@ -367,8 +367,10 @@ class DaoUpscalerImpl {
   // this may be called in the middle of: ending it would drop the rest of the
   // frame's commands.
   void AwaitSubmittedFrames();
-  // Whether the frame has a 3D scene. Single-sampled, the multisampled draws
-  // alone (the game's clears) aren't one unless a depth tile was taken.
+  // Whether the frame has a 3D scene. Counts include screen-space clears,
+  // which track depth but don't receive jitter or motion-vector capture.
+  // Single-sampled, multisampled clears alone aren't a scene unless a depth
+  // tile was taken.
   bool HasScene() const {
     return scene_draws_ && (!single_sample_scene_ ||
                             single_sample_scene_drawn_ || depth_tiles_);

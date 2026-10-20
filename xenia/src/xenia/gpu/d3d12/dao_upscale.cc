@@ -37,7 +37,7 @@ DEFINE_bool(dao_motion_vectors, true,
             "comparison).",
             "GPU");
 DEFINE_bool(dao_temporal_jitter, true,
-            "Jitter scene draws for temporal upscaling (false: no jitter, "
+            "Temporal subpixel jitter offsets (false: keep offsets at zero "
             "for diagnosing flicker; reduces anti-aliasing quality).",
             "GPU");
 DEFINE_bool(dao_upscale_ui, true,
@@ -442,7 +442,8 @@ void DaoUpscalerImpl::OnDraw(const RegisterFile& regs,
   // pieces narrower than that: it isn't jittered, which would open seams
   // between them. Single-sampled, the depth-tested draws as wide as the screen
   // (not the shadow maps) until the scene's color is resolved (after it,
-  // effects drawn over it).
+  // effects drawn over it). Screen-space clears count and track depth too,
+  // but aren't jittered or captured for motion.
   const bool single_sample_scene_draw =
       single_sample_scene_ && !scene_texture_ &&
       surface.msaa_samples == xenos::MsaaSamples::k1X &&
@@ -456,7 +457,7 @@ void DaoUpscalerImpl::OnDraw(const RegisterFile& regs,
   const bool scene_geometry =
       !regs.Get<reg::PA_CL_VTE_CNTL>().vtx_xy_fmt &&
       !regs.Get<reg::PA_CL_CLIP_CNTL>().clip_disable;
-  if (jitter_active_ && scene_geometry && depth_control.z_enable &&
+  if (jitter_active_ && depth_control.z_enable &&
       ((surface.msaa_samples != xenos::MsaaSamples::k1X && scene_wide) ||
        single_sample_scene_draw)) {
     ++scene_draws_;
@@ -478,7 +479,9 @@ void DaoUpscalerImpl::OnDraw(const RegisterFile& regs,
       scene_depth_window_offset_[1] = window_offset[1];
       scene_depth_pending_ = true;
     }
-    if (!viewport_info.xy_extent[0] || !viewport_info.xy_extent[1]) {
+    // Screen-space draws cover their own rectangle; jitter would uncover an edge.
+    if (!scene_geometry || !viewport_info.xy_extent[0] ||
+        !viewport_info.xy_extent[1]) {
       return;
     }
     const float ndc_jitter[2] = {
@@ -619,6 +622,7 @@ void DaoUpscalerImpl::CaptureHudless() {
   constants.size[0] = std::min(render_size_[0], uint32_t(source_desc.Width));
   constants.size[1] = std::min(render_size_[1], uint32_t(source_desc.Height));
   const RegisterFile& regs = rtc_.register_file();
+  // Match the resolve's scale / 2 edge fill; native targets have no scaled gap.
   if (cvars::resolve_resolution_scale_fill_half_pixel_offset &&
       cvars::half_pixel_offset &&
       regs.Get<reg::PA_SU_VTX_CNTL>().pix_center ==
@@ -704,10 +708,20 @@ void DaoUpscalerImpl::OnResolve(const draw_util::ResolveInfo& resolve_info) {
     srv.Texture2D.MipLevels = 1;
   }
   CopyConstants constants = {};
+  const bool fill_half_pixel_offset =
+      cvars::resolve_resolution_scale_fill_half_pixel_offset &&
+      cvars::half_pixel_offset &&
+      regs.Get<reg::PA_SU_VTX_CNTL>().pix_center ==
+          xenos::PixelCenter::kD3DZero &&
+      !key.scale_native;
   for (uint32_t i = 0; i < 2; ++i) {
     constants.source_offset[i] = screen[i] + source_offset[i];
     constants.dest_offset[i] = screen[i];
     constants.size[i] = uint32_t(screen[2 + i] - screen[i]);
+    if (fill_half_pixel_offset) {
+      // The filled edge is relative to the depth tile's source origin.
+      constants.source_min[i] = source_offset[i] + (scale[i] >> 1);
+    }
   }
   CopyFromRenderTarget(
       source, srv, *target,
@@ -1119,6 +1133,7 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
   device->CreateShaderResourceView(color_.resource.Get(), &srv,
                                    descriptors[2].first);
   if (!cvars::dao_upscale_ui) {
+    // Identical inputs make the compositor detect no UI differences.
     descriptors[1] = descriptors[2];
   }
   srv.Format = motion_vectors_.format;
