@@ -76,6 +76,19 @@ through it.
 
 ## Flicker and motion
 
+For temporal-upscaling artifacts, `xenia.dao_upscale_ui=false` shows the
+upscaled scene without the game's UI, distinguishing scene artifacts from the
+UI composite. `xenia.dao_temporal_jitter=false` keeps temporal upscaling on
+without shifting the scene between frames. These are diagnostic settings:
+restore both to `true` after testing so menus are visible and temporal
+anti-aliasing receives its jittered samples.
+
+For border flicker, test with jitter enabled at resolution scales 1 and 2,
+including opening a game menu. Screen-space color and depth clears must stay
+aligned to their rectangles; jitter applies to the clipped scene geometry.
+The one-frame GPU trace (`DAO_GPU_FRAME_TRACE=<swap number>`) includes the depth
+test, vertex XY format and clipping state to distinguish those draws.
+
 `flicker.py <dir>...` scores flicker in consecutive frames: a frame history
 (`DAO_FRAME_HISTORY=1`, F12 saves the last 180 frames) or captures taken every frame.
 Compare the ratio against the same walk with the effect off (`walk.txt` gives the same
