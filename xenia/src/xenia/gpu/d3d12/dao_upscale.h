@@ -34,9 +34,9 @@
 // scaled up instead) and replaces the front buffer as the guest output, at the
 // size it is shown at. In conversations and cutscenes, depth of field blurs
 // the upscaler's output first (dao_upscale_dof.cc), from the scene depth. With
-// frame generation, a frame between the previous one
-// and this one is generated from the upscaler's output (dao_upscale_fg.cc) and
-// composited with the UI the same way; the presenter shows it before this one.
+// frame generation, a frame between the previous one and this one is
+// generated from that image (dao_upscale_fg.cc) and composited with the UI the
+// same way; the presenter shows it before this one.
 #pragma once
 
 #include "xenia/ui/d3d12/d3d12_api.h"

@@ -4,8 +4,10 @@
 // Dennis Gustafsson's single pass bokeh). A sample behind this pixel reaches
 // it by at most twice this pixel's circle: a sharp face doesn't take the
 // blurred wall's color, while a blurred near shoulder spreads over it. Alpha:
-// how far the samples counted reach, for the combine (a near blur over
-// something in focus).
+// how far the samples in front of this pixel reach over it, for the combine
+// (a near blur over something in focus; the pixel's own blur, and the blur
+// behind it, are left out, or the edge of a sharp face would take the blurred
+// wall's).
 #include "dao_dof.hlsli"
 
 Texture2D<float4> dao_dof_half : register(t2);
@@ -23,7 +25,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   float4 center = dao_dof_half[id.xy];
   float center_size = abs(center.a);
   float3 color = center.rgb;
-  float reach = center_size;
+  float reach = 0.0;
   float total = 1.0;
   // In half size pixels.
   float radius_max = dao_dof_max_radius * 0.5 * dao_dof_strength;
@@ -40,7 +42,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     }
     float counted = saturate(size - radius + 0.5);
     color += lerp(color / total, tap.rgb, counted);
-    reach += lerp(reach / total, size, counted);
+    reach += lerp(reach / total, tap.a < center.a ? size : 0.0, counted);
     total += 1.0;
   }
   dao_dof_blur_out[id.xy] = float4(color / total, reach / total);

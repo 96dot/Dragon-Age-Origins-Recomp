@@ -388,9 +388,9 @@ post_processing = {}
 # "high". Only with temporal upscaling (it uses its motion vectors); costs GPU time where the
 # scene moves, more at High.
 motion_blur = "{}"
-# Depth of field in conversations and cutscenes: the background (and anything close to the
-# camera) blurred around the speaker, as a film camera's lens does. Only with temporal
-# upscaling (it blurs the upscaled scene).
+# Depth of field in conversations (and, it seems, cutscenes), on by default: the people
+# nearest the camera sharp, the scene behind them (and anything in front of them) blurred,
+# as a film camera's lens does. Only with temporal upscaling (it blurs the upscaled scene).
 depth_of_field = {}
 # The camera's field of view, in degrees across at 16:9 (80 to 120; 91 is the game's own):
 # in gameplay, and in conversations and cutscenes (scaling each shot's own).

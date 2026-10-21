@@ -1,7 +1,8 @@
 // DAO: depth of field (see dao_dof.hlsli), the scene at half size: each half
 // size pixel the average of its 2x2 display pixels, linear, and in alpha the
-// nearest one's circle of confusion, in half size pixels (the nearest: an
-// edge of something in focus doesn't take the blur behind it).
+// smallest of their signed circles of confusion (the most in front, or the
+// least behind), in half size pixels: an edge of something in focus doesn't
+// take the blur behind it.
 #include "dao_dof.hlsli"
 
 Texture2D<float4> dao_dof_scene : register(t2);

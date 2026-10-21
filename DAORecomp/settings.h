@@ -122,8 +122,9 @@ namespace dao
         // only with it): 0 off, 1 low, up to kMaxMotionBlur high.
         int motionBlur = 0;
         // Depth of field in conversations and cutscenes, with temporal upscaling (it
-        // blurs the upscaled scene): the background, and anything close to the
-        // camera, blurred around the speaker, as a film camera's lens does.
+        // blurs the upscaled scene): the people nearest the camera in the middle of
+        // the picture sharp, the scene behind them (and anything in front of them)
+        // blurred, as a film camera's lens does.
         bool depthOfField = true;
         // The camera's field of view in gameplay, and in conversations and cutscenes
         // (scaling each shot's own): horizontal degrees at 16:9, kMinFov to kMaxFov

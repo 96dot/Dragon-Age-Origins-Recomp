@@ -3,8 +3,9 @@
 // composite), the backends dao_upscale_fsr.cc (FidelityFX),
 // dao_upscale_xess.cc (XeSS) and dao_upscale_dlss.cc (DLSS),
 // dao_upscale_fg.cc (frame generation),
-// dao_upscale_motion.cc (motion vectors), dao_upscale_hdr.cc (true HDR) and
-// dao_motion_blur.cc.
+// dao_upscale_motion.cc (motion vectors), dao_upscale_hdr.cc (true HDR),
+// dao_upscale_neural.cc (neural rendering), dao_motion_blur.cc and
+// dao_upscale_dof.cc (depth of field).
 #pragma once
 
 #include <algorithm>
@@ -661,11 +662,12 @@ class DaoUpscalerImpl {
   bool InitializeMotion();
   // Depth of field (dao_upscale_dof.cc): its root signature and pipelines.
   bool InitializeDepthOfField();
-  // Its strength for a frame upscaled now, eased in and out with the game
-  // mode, and its textures; false if it's off this frame.
+  // Its strength for a frame upscaled now, eased in and out with the game's
+  // shots, and its textures (created while it's enabled, before the first
+  // shot); false if it's off this frame.
   bool UpdateDepthOfField(float frame_ms, uint32_t display_width,
                           uint32_t display_height);
-  // Its passes, from upscaled_ (and depth_) into dof_ (left readable), after
+  // Its passes, from upscaled_ (and depth_) into dof_out_ (left readable), after
   // UpdateDepthOfField returned true; descriptors: kDofViews.
   void RecordDepthOfField(
       uint32_t render_width, uint32_t render_height, bool linear_color,
@@ -823,14 +825,15 @@ class DaoUpscalerImpl {
   Texture dof_focus_;
   Texture dof_half_;
   Texture dof_blurred_;
-  Texture dof_;
-  // Its strength (0 off to 1), eased; the game mode and field of view of the
-  // last frame upscaled (a change is a cut), whether the focus is to be taken
-  // at once, and the display size its textures couldn't be created at.
+  Texture dof_out_;
+  // Its strength (0 off to 1), eased; whether the last frame upscaled was in
+  // the game's shots, and its field of view (a change is a cut); the frames
+  // the focus is still to be taken at once for; and the display size its
+  // textures couldn't be created at.
   float dof_strength_ = 0.0f;
-  int32_t dof_mode_ = -1;
+  bool dof_shot_ = false;
   float dof_fov_ = 0.0f;
-  bool dof_snap_ = true;
+  uint32_t dof_snap_frames_ = 0;
   uint32_t dof_failed_size_[2] = {};
   // Display resolution.
   Texture upscaled_;

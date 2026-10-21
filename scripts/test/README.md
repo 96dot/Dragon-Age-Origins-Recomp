@@ -83,6 +83,10 @@ without shifting the scene between frames. These are diagnostic settings:
 restore both to `true` after testing so menus are visible and temporal
 anti-aliasing receives its jittered samples.
 
+`xenia.dao_show_depth_of_field=true` shows depth of field's blur instead of the scene
+(red behind the focus, blue in front of it), and `xenia.dao_depth_of_field_always=true`
+turns it on outside conversations, for testing it anywhere.
+
 For border flicker, test with jitter enabled at resolution scales 1 and 2,
 including opening a game menu. Screen-space color and depth clears must stay
 aligned to their rectangles; jitter applies to the clipped scene geometry.

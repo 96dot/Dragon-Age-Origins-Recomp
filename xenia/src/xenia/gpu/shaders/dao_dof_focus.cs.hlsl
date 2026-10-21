@@ -1,14 +1,15 @@
 // DAO: depth of field's focus (see dao_dof.hlsli), one group: the scene's
-// distances on a 16x16 grid over most of the screen's upper two thirds
-// (where the game's conversation shots frame the faces: one in the middle, or
-// two either side of it), sorted; the focus is the nearer quarter's, so the
-// people in front of a far wall are the ones in focus.
-// It's eased towards that over frames (a slow pull within a shot), or taken at
-// once on a cut: the area's median distance changing by more than half.
+// distances on a 16x16 grid over most of the screen's width, from under the
+// top to past the middle (where the game's conversation shots frame the
+// faces: one in the middle, or two either side of it), sorted; the focus is
+// the nearer quarter's, so the people in front of a far wall are the ones in
+// focus. It's eased towards that over frames (a slow pull within a shot), or
+// taken at once on a cut: the area's median distance changing by a ratio of
+// more than kDaoDofCut either way.
 #include "dao_dof.hlsli"
 
-// (x 0: the focus, x 1: the median; R32_FLOAT, which any GPU loads from as
-// unordered access.)
+// (x 0: the focus, x 1: the median; R32_FLOAT, the format every D3D12 GPU can
+// read as a typed UAV.)
 RWTexture2D<float> dao_dof_focus_out : register(u0);
 
 // The grid's area, as fractions of the screen.
@@ -61,7 +62,7 @@ void main(uint3 id : SV_GroupThreadID, uint index : SV_GroupIndex) {
     // Sky in the middle: keep the focus (or, with none yet, far).
     target = snap ? kDaoDofSky : previous.x;
   }
-  // Eased in log distance: a pull from 2 to 4 m as smooth as 20 to 40 m.
+  // Eased in log distance: a pull from 2 to 4 as smooth as from 20 to 40.
   float focus = snap ? target
                      : exp(lerp(log(previous.x), log(target),
                                 dao_dof_focus_rate));

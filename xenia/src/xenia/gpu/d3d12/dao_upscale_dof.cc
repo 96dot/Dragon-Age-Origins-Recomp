@@ -11,9 +11,10 @@
 #include "xenia/gpu/d3d12/d3d12_command_processor.h"
 
 DEFINE_bool(dao_depth_of_field, true,
-            "Depth of field in conversations and cutscenes with temporal "
-            "upscaling: the background (and anything close to the camera) "
-            "blurred around the speaker, as a film camera's lens does.",
+            "Depth of field in conversations (and, it seems, cutscenes) with "
+            "temporal upscaling: the people nearest the camera in the middle "
+            "of the picture sharp, the scene behind them (and anything in "
+            "front of them) blurred, as a film camera's lens does.",
             "GPU");
 DEFINE_double(dao_depth_of_field_scale, 1.0,
               "The depth of field's blur, as a multiple of its default "
@@ -42,10 +43,6 @@ namespace shaders {
 
 namespace {
 
-// The game modes with shots of their own (DAORecomp/kernel/game_modes.h):
-// conversations, cutscenes.
-constexpr int32_t kModeConversation = 4;
-constexpr int32_t kModeCutscene = 5;
 // The blur of a surface at infinity with the lens focused at the near plane,
 // as a fraction of the display height, at a 60 degree vertical field of view
 // (the game's in exploration; conversation shots are narrower, and blur more,
@@ -56,17 +53,29 @@ constexpr float kDofAperture = 0.009f;
 constexpr float kDofMaxRadius = 0.014f;
 constexpr double kDofReferenceHalfFov = std::numbers::pi / 6.0;
 // The blur's samples: one per this many half size pixels of its disc (about
-// 2 apart, which the combine's tent fills), in steps of 8, within limits
-// (at 4K the most, 64; at 800 lines about 32).
+// 2 apart, which the combine's tent fills), rounded up to a multiple of 8,
+// within limits (64 at 4K, 48 at 1080 lines, 24 at 800).
 constexpr float kDofAreaPerSample = 4.0f;
 constexpr uint32_t kDofMinSamples = 16;
 constexpr uint32_t kDofMaxSamples = 64;
-// How long the effect takes to come and go with the game mode, and the time
-// constant the focus follows a change in the scene with (ms).
+// How long the effect takes to come and go with the shots, the time constant
+// the focus follows a change in the scene with, and the longest frame counted
+// as such (a hitch isn't a jump) (ms).
 constexpr float kDofEaseMs = 300.0f;
 constexpr float kDofFocusMs = 150.0f;
-// A change of the field of view (a ratio) that is a cut to another shot.
-constexpr float kDofFovCut = 1.005f;
+constexpr float kDofMaxFrameMs = 100.0f;
+// A change of the field of view in a frame (a ratio) that is a cut to another
+// shot (more than a zoom moves in a frame).
+constexpr float kDofFovCut = 1.02f;
+// Frames the focus is taken at once for after a cut seen here: the game's
+// thread can publish the new shot's field of view a frame before its image
+// reaches the swap.
+constexpr uint32_t kDofSnapFrames = 2;
+// The field of view's half angle (radians) the lens is taken within, and the
+// field of view (radians) without one published yet.
+constexpr double kDofMinHalfFov = 0.05;
+constexpr double kDofMaxHalfFov = 1.5;
+constexpr float kDofDefaultFov = 1.0f;
 
 }  // namespace
 
@@ -134,37 +143,47 @@ bool DaoUpscalerImpl::InitializeDepthOfField() {
 bool DaoUpscalerImpl::UpdateDepthOfField(float frame_ms,
                                          uint32_t display_width,
                                          uint32_t display_height) {
-  const int32_t mode = dao_live::Load(dao_live::values.camera_mode);
+  const bool shot = dao_live::Load(dao_live::values.camera_shot);
   const float fov = dao_live::Load(dao_live::values.camera_fov);
+  const bool enabled = dof_available_ &&
+                       dao_live::Load(dao_live::values.depth_of_field) &&
+                       (display_width != dof_failed_size_[0] ||
+                        display_height != dof_failed_size_[1]);
   const bool wanted =
-      dof_available_ && dao_live::Load(dao_live::values.depth_of_field) &&
-      (cvars::dao_depth_of_field_always || mode == kModeConversation ||
-       mode == kModeCutscene) &&
-      (display_width != dof_failed_size_[0] ||
-       display_height != dof_failed_size_[1]);
-  // Eased in and out (a frame of up to 100 ms counted as such).
-  const float step = std::clamp(frame_ms, 0.0f, 100.0f) / kDofEaseMs;
+      enabled && (cvars::dao_depth_of_field_always || shot);
   const float before = dof_strength_;
-  dof_strength_ = wanted ? std::min(dof_strength_ + step, 1.0f)
-                         : std::max(dof_strength_ - step, 0.0f);
+  if (!wanted && reset_history_) {
+    // Off at once after frames not upscaled (a conversation that ended in a
+    // load: the new area isn't blurred while it fades).
+    dof_strength_ = 0.0f;
+  } else {
+    const float step =
+        std::clamp(frame_ms, 0.0f, kDofMaxFrameMs) / kDofEaseMs;
+    dof_strength_ = wanted ? std::min(dof_strength_ + step, 1.0f)
+                           : std::max(dof_strength_ - step, 0.0f);
+  }
   // The focus taken at once when the effect starts, after a frame not
   // upscaled (the depth is of another scene, or none), and on a cut: another
-  // mode, or another field of view (a conversation's shots have their own).
+  // field of view (a conversation's shots have their own), or the shots
+  // starting or ending.
   const bool fov_cut = !(fov > 0.0f && dof_fov_ > 0.0f &&
                          std::max(fov / dof_fov_, dof_fov_ / fov) < kDofFovCut);
-  if (before <= 0.0f || reset_history_ || mode != dof_mode_ || fov_cut) {
-    dof_snap_ = true;
+  if (before <= 0.0f || reset_history_ || shot != dof_shot_ || fov_cut) {
+    dof_snap_frames_ = kDofSnapFrames;
   }
-  dof_mode_ = mode;
+  dof_shot_ = shot;
   dof_fov_ = fov;
   if ((before > 0.0f) != (dof_strength_ > 0.0f)) {
-    XELOGI("Depth of field: {} (game mode {}, field of view {:.1f} degrees)",
-           dof_strength_ > 0.0f ? "on" : "off", mode,
+    XELOGI("Depth of field: {} (field of view {:.1f} degrees)",
+           dof_strength_ > 0.0f ? "on" : "off",
            fov * 180.0f / std::numbers::pi_v<float>);
   }
-  if (dof_strength_ <= 0.0f) {
+  if (!enabled) {
     return false;
   }
+  // Created with the first frame upscaled (after a load), not with the first
+  // shot: creating them takes a few milliseconds, which a conversation's
+  // first frame would show.
   const uint32_t half_width = (display_width + 1) / 2;
   const uint32_t half_height = (display_height + 1) / 2;
   if (!EnsureTexture(dof_focus_, DXGI_FORMAT_R32_FLOAT, 2, 1,
@@ -173,7 +192,7 @@ bool DaoUpscalerImpl::UpdateDepthOfField(float frame_ms,
                      half_height, "depth of field half size") ||
       !EnsureTexture(dof_blurred_, DXGI_FORMAT_R16G16B16A16_FLOAT, half_width,
                      half_height, "depth of field blur") ||
-      !EnsureTexture(dof_, DXGI_FORMAT_R16G16B16A16_FLOAT, display_width,
+      !EnsureTexture(dof_out_, DXGI_FORMAT_R16G16B16A16_FLOAT, display_width,
                      display_height, "depth of field")) {
     // Not trying again every frame: until the display size changes.
     dof_failed_size_[0] = display_width;
@@ -181,7 +200,7 @@ bool DaoUpscalerImpl::UpdateDepthOfField(float frame_ms,
     dof_strength_ = 0.0f;
     return false;
   }
-  return true;
+  return dof_strength_ > 0.0f;
 }
 
 void DaoUpscalerImpl::RecordDepthOfField(
@@ -222,12 +241,12 @@ void DaoUpscalerImpl::RecordDepthOfField(
   srv.Format = dof_blurred_.format;
   device->CreateShaderResourceView(dof_blurred_.resource.Get(), &srv,
                                    descriptors[7].first);
-  uav.Format = dof_.format;
-  device->CreateUnorderedAccessView(dof_.resource.Get(), nullptr, &uav,
+  uav.Format = dof_out_.format;
+  device->CreateUnorderedAccessView(dof_out_.resource.Get(), nullptr, &uav,
                                     descriptors[8].first);
 
-  const uint32_t display_width = dof_.width;
-  const uint32_t display_height = dof_.height;
+  const uint32_t display_width = dof_out_.width;
+  const uint32_t display_height = dof_out_.height;
   DofConstants constants = {};
   constants.display_size[0] = display_width;
   constants.display_size[1] = display_height;
@@ -235,20 +254,23 @@ void DaoUpscalerImpl::RecordDepthOfField(
   constants.half_size[1] = dof_half_.height;
   constants.render_size[0] = render_width;
   constants.render_size[1] = render_height;
-  // A narrower field of view (a longer lens) blurs more, by the tangent of
-  // half the angle (at the same framing).
-  const float fov = dof_fov_ > 0.0f ? dof_fov_ : 1.0f;
-  const float lens = float(std::sqrt(std::tan(kDofReferenceHalfFov) /
-                                     std::tan(std::clamp(fov * 0.5, 0.05, 1.5))));
-  const float scale =
-      float(std::clamp(cvars::dao_depth_of_field_scale, 0.25, 4.0));
+  // A narrower field of view (a longer lens) blurs more: by the square root
+  // of the zoom (see kDofAperture).
+  const float fov = dof_fov_ > 0.0f ? dof_fov_ : kDofDefaultFov;
+  const float lens = float(std::sqrt(
+      std::tan(kDofReferenceHalfFov) /
+      std::tan(std::clamp(fov * 0.5, kDofMinHalfFov, kDofMaxHalfFov))));
+  // (NaN, which a clamp lets through, as the default.)
+  const double scale_cvar = cvars::dao_depth_of_field_scale;
+  const float scale = float(
+      std::isfinite(scale_cvar) ? std::clamp(scale_cvar, 0.25, 4.0) : 1.0);
   constants.aperture = kDofAperture * float(display_height) * lens * scale;
   constants.max_radius = kDofMaxRadius * float(display_height) * scale;
   // Smoothed (a smoothstep of the eased strength).
   constants.strength =
       dof_strength_ * dof_strength_ * (3.0f - 2.0f * dof_strength_);
   constants.focus_rate =
-      1.0f - std::exp(-std::clamp(frame_ms, 0.0f, 100.0f) / kDofFocusMs);
+      1.0f - std::exp(-std::clamp(frame_ms, 0.0f, kDofMaxFrameMs) / kDofFocusMs);
   constants.gamma = linear_color ? 0.0f : OutputGamma();
   const float half_radius = constants.max_radius * 0.5f;
   const uint32_t samples =
@@ -257,14 +279,15 @@ void DaoUpscalerImpl::RecordDepthOfField(
       7;
   constants.samples =
       std::clamp(samples / 8 * 8, kDofMinSamples, kDofMaxSamples);
-  constants.flags = (dof_snap_ ? kDofFlagSnap : 0) |
+  constants.flags = (dof_snap_frames_ ? kDofFlagSnap : 0) |
                     (cvars::dao_show_depth_of_field ? kDofFlagShow : 0) |
                     (depth_greater_draws_ > depth_less_draws_
                          ? kDofFlagDepthReversed
                          : 0);
-  dof_snap_ = false;
+  dof_snap_frames_ -= dof_snap_frames_ ? 1 : 0;
 
-  // The focus.
+  // The focus (it reads t0 only: the other tables are placeholders, as in
+  // the passes below).
   Transition(depth_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   Transition(upscaled_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
   Transition(dof_focus_, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
@@ -293,14 +316,14 @@ void DaoUpscalerImpl::RecordDepthOfField(
                        (dof_half_.width + 7) / 8, (dof_half_.height + 7) / 8);
   // Over the sharp scene.
   Transition(dof_blurred_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-  Transition(dof_, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+  Transition(dof_out_, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
   const ui::d3d12::util::DescriptorCpuGpuHandlePair*
       combine_tables[kDofTables] = {&descriptors[0], &descriptors[1],
                                     &descriptors[3], &descriptors[7],
                                     &descriptors[8]};
   DispatchDepthOfField(dof_combine_pipeline_.Get(), constants, combine_tables,
                        (display_width + 7) / 8, (display_height + 7) / 8);
-  Transition(dof_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+  Transition(dof_out_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
 }
 
 void DaoUpscalerImpl::DispatchDepthOfField(

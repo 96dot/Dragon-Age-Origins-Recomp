@@ -269,7 +269,7 @@ namespace dao::launcher
             HelpText("Blurs what moves (characters, objects, the camera). Needs temporal upscaling; costs GPU "
                      "time while things move, more at High.");
             ImGui::Checkbox("Depth of field in conversations", &s.depthOfField);
-            HelpText("Blurs the background, and anything close to the camera, around the speaker, as a film "
+            HelpText("Keeps the people nearest the camera sharp and blurs the scene behind them, as a film "
                      "camera's lens does. Needs temporal upscaling.");
 
             Section("Camera");

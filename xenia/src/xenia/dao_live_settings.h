@@ -34,11 +34,12 @@ struct Values {
   // A copy of the frame rate (the setting or the in-game hotkey's), 0
   // unlimited (DAORecomp/gpu/video.cpp, every frame).
   std::atomic<int32_t> frame_rate{0};
-  // Not settings: the game mode (DAORecomp/kernel/game_modes.h, -1 none) and
-  // the main camera's vertical field of view in radians (0 none) as the
-  // game's camera update last set them (DAORecomp/gpu/camera_fov.cpp, every
-  // frame), for depth of field.
-  std::atomic<int32_t> camera_mode{-1};
+  // Not settings: whether the game is in a conversation or a cutscene (its
+  // own shots), and the main camera's vertical field of view in radians (0
+  // none), as the game's camera update last set them (DAORecomp/gpu/
+  // camera_fov.cpp, each frame it runs; they stay as they were while it
+  // doesn't, as in loads, which aren't upscaled), for depth of field.
+  std::atomic<bool> camera_shot{false};
   std::atomic<float> camera_fov{0.0f};
 };
 

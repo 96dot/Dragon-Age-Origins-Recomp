@@ -24,8 +24,9 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   CPU modules (interrupts, guest threads, the window).
 - `dao_live_settings.h`: the settings the in-game Graphics menu changes while the
   game runs (vsync, low latency, temporal sharpness, anisotropic filtering, motion
-  blur, frame generation, HDR paper white and peak, neural rendering's strength and frame
-  rate guard; and the game's frame rate), as atomics the GPU, presenter and render
+  blur, depth of field, frame generation, HDR paper white and peak, neural rendering's
+  strength and frame rate guard; and the game's frame rate, and whether its camera is in
+  a conversation's or cutscene's shots, with its field of view), as atomics the GPU, presenter and render
   threads read instead of their cvars (also in the upstream files `d3d12_texture_cache.cc` and
   `d3d12_presenter.cc`).
 - `gpu/d3d12/dao_upscale.*`: temporal upscaling (FidelityFX, XeSS or DLSS), motion vectors,
@@ -36,6 +37,7 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   `dao_upscale_dlss.cc` (DLSS, through `ui/d3d12/dao_streamline.*`; XeSS and DLSS fall
   back to FSR), `dao_upscale_motion.cc` the motion vectors,
   `dao_upscale_hdr.cc` true HDR, `dao_motion_blur.cc` motion blur,
+  `dao_upscale_dof.cc` depth of field,
   `dao_upscale_fg.cc` frame generation (FSR 3.1).
 - `gpu/d3d12/dao_frame_guard.*`: the frame rate guard: GPU timestamps around each
   submission (from `d3d12_command_processor.cc`'s `BeginSubmission` and `EndSubmission`,

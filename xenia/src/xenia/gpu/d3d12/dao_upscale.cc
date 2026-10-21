@@ -1100,10 +1100,10 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
     generate = false;
   }
   // Depth of field (dao_upscale_dof.cc) in conversations and cutscenes: the
-  // scene from here on is dof_.
+  // scene from here on is dof_out_.
   const bool depth_of_field =
       UpdateDepthOfField(frame_ms, display_width, display_height);
-  Texture& scene_image = depth_of_field ? dof_ : upscaled_;
+  Texture& scene_image = depth_of_field ? dof_out_ : upscaled_;
   // Its views: the scene's SRV and UAV, the generated frame's SRV, the
   // generated composite's UAV.
   constexpr uint32_t kFrameGenerationViews = 4;
@@ -1111,9 +1111,9 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
       descriptors[kCompositeTables + kBlurViews + kFrameGenerationViews +
                   kDofViews];
   const uint32_t blur_views = blur.samples ? kBlurViews : 0;
-  const uint32_t fg_views_count = generate ? kFrameGenerationViews : 0;
+  const uint32_t fg_view_count = generate ? kFrameGenerationViews : 0;
   if (!cp_.RequestOneUseSingleViewDescriptors(
-          kCompositeTables + blur_views + fg_views_count +
+          kCompositeTables + blur_views + fg_view_count +
               (depth_of_field ? kDofViews : 0),
           descriptors)) {
     return NotUpscaled("no descriptors", frontbuffer, frontbuffer_srv, srv_out,
@@ -1131,7 +1131,7 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
   if (depth_of_field) {
     RecordDepthOfField(
         render_width, render_height, linear_color, frame_ms,
-        descriptors + kCompositeTables + blur_views + fg_views_count);
+        descriptors + kCompositeTables + blur_views + fg_view_count);
     if (dao_timing::GpuTiming::Enabled()) {
       dao_timing::GpuTiming::Get().Mark(cp_, "depth of field");
     }
