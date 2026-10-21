@@ -115,6 +115,12 @@ the next game.
   game code that reads rendered pixels on the CPU (thumbnails, screenshots, readback
   for picking) needs `ReadBackGpuWrittenMemory` before it reads. Look for these early:
   the symptom is black or stale images.
+- **Effect parameter bind** (`sub_826644B0`, effect vtable slot 22): binds an
+  effect's parameters from four parallel vectors at +28. An effect made while its
+  resource streams in can hold a null descriptor, which the bind dereferences; the
+  hook unbinds those entries. Found from a render-thread crash dump (stack walked
+  through the back chain, since the image has no RTTI) and a hook logging the null
+  entry's effect and its maker.
 - **Kernel-side, not hooks:** `XamShowKeyboardUI` (a stub returning the default text
   blocked naming characters; DAO now has an on-screen keyboard, `ui/keyboard.cpp`), `XamContentCreateEx` (licence mask, keep display names),
   save file names (`0x<crc32 of the UTF-16BE character name>` in DAO; check the new
@@ -146,6 +152,11 @@ match by hand.
 12. Conversation camera frozen for seconds after a line (TU6): a `Sleep(0)` poll on
     a flag clear for microseconds, against the spin-wait sleep. Fixed by the other
     side waiting for the poller.
+13. A render-thread crash (read at `00000030`) about a second after loading a save
+    with buttons held (TU6, Ostagar after Awakening). An effect made while its
+    resource still streamed in kept a null parameter descriptor. Fixed by unbinding
+    those parameters in the bind (`gpu/effect_params.cpp`). Reproduced with a
+    scripted load holding every button, about half the runs.
 
 ## Test recipes
 
