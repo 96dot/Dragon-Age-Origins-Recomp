@@ -321,9 +321,22 @@ def unbounded_table(bctr, fb):
 # Switches without a bounds check, checked by hand: bctr -> case count, per image
 # (DAO_VARIANT). Every other one found is only reported (UNBOUNDED lines).
 UNBOUNDED = {
-    # tu6_sub_823D7748: u16 table at 82169A60, entry 14 is the next table's
-    # (outside the function); the callers pass constants 0-9.
-    'tu6': {0x823D7794: 14},
+    # Disc: the same three as TU6's below (82A6F958 and 82A6FA00 = 82B39960 and
+    # 82B39A08, 82E22DC4 = 82EEC3C4).
+    '': {0x82A6F958: 11, 0x82A6FA00: 11, 0x82E22DC4: 16},
+    'tu6': {
+        # tu6_sub_823D7748: u16 table at 82169A60, entry 14 is the next table's
+        # (outside the function); the callers pass constants 0-9.
+        0x823D7794: 14,
+        # A second dispatch on r10 inside cases of the switches at 82B3991C and
+        # 82B399C4, which bound it (cmplwi r10,10). The chained-dispatch pass misses
+        # them: their block starts after the first switch's inline table.
+        0x82B39960: 11,
+        0x82B39A08: 11,
+        # r29 is a 4-bit field (rlwinm at 82EEC088), bound by cmplwi r29,15 for the
+        # switch at 82EEC0B8.
+        0x82EEC3C4: 16,
+    },
 }
 
 

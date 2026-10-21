@@ -11738,6 +11738,25 @@ labels = [
     0x82A6F944,
 ]
 
+# No bounds check (UNBOUNDED in find_switches.py): no default case.
+[[switch]]
+base = 0x82A6F958
+r = 10
+default = 0x0
+labels = [
+    0x82A6F9A0,
+    0x82A6F988,
+    0x82A6F988,
+    0x82A6F988,
+    0x82A6F988,
+    0x82A6F988,
+    0x82A6F9A0,
+    0x82A6F9A0,
+    0x82A6F9A0,
+    0x82A6F9A0,
+    0x82A6F9A0,
+]
+
 [[switch]]
 base = 0x82A6F9BC
 r = 10
@@ -11754,6 +11773,25 @@ labels = [
     0x82A6F9EC,
     0x82A6F9EC,
     0x82A6F9EC,
+]
+
+# No bounds check (UNBOUNDED in find_switches.py): no default case.
+[[switch]]
+base = 0x82A6FA00
+r = 10
+default = 0x0
+labels = [
+    0x82A6FA30,
+    0x82A6F988,
+    0x82A6F988,
+    0x82A6F988,
+    0x82A6F988,
+    0x82A6F988,
+    0x82A6FA30,
+    0x82A6FA30,
+    0x82A6FA30,
+    0x82A6FA30,
+    0x82A6FA30,
 ]
 
 [[switch]]
@@ -16096,6 +16134,30 @@ labels = [
     0x82E22B98,
     0x82E22B98,
     0x82E22CA4,
+]
+
+# No bounds check (UNBOUNDED in find_switches.py): no default case.
+[[switch]]
+base = 0x82E22DC4
+r = 29
+default = 0x0
+labels = [
+    0x82E22DC8,
+    0x82E22DC8,
+    0x82E228BC,
+    0x82E22DC8,
+    0x82E22DC8,
+    0x82E22DC8,
+    0x82E22DC8,
+    0x82E228BC,
+    0x82E228BC,
+    0x82E22DC8,
+    0x82E228BC,
+    0x82E228BC,
+    0x82E22DC8,
+    0x82E22DC8,
+    0x82E22DC8,
+    0x82E22DC8,
 ]
 
 [[switch]]
