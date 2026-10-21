@@ -250,6 +250,7 @@ namespace dao
             if (motionBlur == MotionBlurName(level))
                 s.motionBlur = level;
         }
+        s.depthOfField = video["depth_of_field"].value_or(s.depthOfField);
         s.fov = video["fov"].value_or(s.fov);
         s.conversationFov = video["conversation_fov"].value_or(s.conversationFov);
         s.hdr = video["hdr"].value_or(s.hdr);
@@ -387,6 +388,10 @@ post_processing = {}
 # "high". Only with temporal upscaling (it uses its motion vectors); costs GPU time where the
 # scene moves, more at High.
 motion_blur = "{}"
+# Depth of field in conversations and cutscenes: the background (and anything close to the
+# camera) blurred around the speaker, as a film camera's lens does. Only with temporal
+# upscaling (it blurs the upscaled scene).
+depth_of_field = {}
 # The camera's field of view, in degrees across at 16:9 (80 to 120; 91 is the game's own):
 # in gameplay, and in conversations and cutscenes (scaling each shot's own).
 fov = {}
@@ -406,7 +411,7 @@ window_height = {}
             Quote(s.neuralWeights), s.neuralStrength, s.neuralNetwork, s.neuralPasses, s.neuralSkinProtect,
             s.neuralStyle, s.neuralFrameRateGuard, s.vsync, LowLatencyName(s.lowLatency), s.frameRate,
             s.hdr, s.hdrPaperWhite, s.hdrPeak, HdrQualityName(s.hdrHighQuality), s.anisotropicFiltering, s.shadows, s.postProcessing,
-            MotionBlurName(s.motionBlur), s.fov, s.conversationFov, s.fullscreen,
+            MotionBlurName(s.motionBlur), s.depthOfField, s.fov, s.conversationFov, s.fullscreen,
             s.windowWidth, s.windowHeight);
         for (const auto& [id, enabled] : s.patches)
         {
@@ -473,6 +478,7 @@ window_height = {}
         SetXeniaCvar("present_hdr_peak", toml::value<double>(s.hdrPeak));
         SetXeniaCvar("dao_hdr_scrgb", toml::value<bool>(s.hdrHighQuality));
         SetXeniaCvar("dao_motion_blur", toml::value<int64_t>(s.motionBlur));
+        SetXeniaCvar("dao_depth_of_field", toml::value<bool>(s.depthOfField));
         if (s.anisotropicFiltering)
             SetXeniaCvar("anisotropic_override", toml::value<int64_t>(XeniaAnisotropicLevel(s.anisotropicFiltering)));
         try

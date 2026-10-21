@@ -437,6 +437,27 @@ class DaoUpscalerImpl {
     // Tiles with a cut that make the whole frame one.
     uint32_t cut_tiles = 0;
   };
+  // dao_dof.hlsli.
+  struct DofConstants {
+    uint32_t display_size[2];
+    uint32_t half_size[2];
+    uint32_t render_size[2];
+    float aperture;
+    float max_radius;
+    float strength;
+    float focus_rate;
+    float gamma;
+    uint32_t samples;
+    uint32_t flags;
+  };
+  // dao_dof.hlsli's kDaoDofFlag*.
+  static constexpr uint32_t kDofFlagSnap = 1;
+  static constexpr uint32_t kDofFlagShow = 2;
+  static constexpr uint32_t kDofFlagDepthReversed = 4;
+  // Depth of field's descriptor tables (t0 to t3, u0), and its views
+  // (RecordDepthOfField).
+  static constexpr uint32_t kDofTables = 5;
+  static constexpr uint32_t kDofViews = 9;
   // dao_hdr_tonemap.cs.
   struct HdrTonemapConstants {
     float rows[3][4];
@@ -638,6 +659,23 @@ class DaoUpscalerImpl {
                              descriptors,
                          CompositeConstants constants);
   bool InitializeMotion();
+  // Depth of field (dao_upscale_dof.cc): its root signature and pipelines.
+  bool InitializeDepthOfField();
+  // Its strength for a frame upscaled now, eased in and out with the game
+  // mode, and its textures; false if it's off this frame.
+  bool UpdateDepthOfField(float frame_ms, uint32_t display_width,
+                          uint32_t display_height);
+  // Its passes, from upscaled_ (and depth_) into dof_ (left readable), after
+  // UpdateDepthOfField returned true; descriptors: kDofViews.
+  void RecordDepthOfField(
+      uint32_t render_width, uint32_t render_height, bool linear_color,
+      float frame_ms,
+      const ui::d3d12::util::DescriptorCpuGpuHandlePair* descriptors);
+  // A pass, with its kDofTables descriptor tables.
+  void DispatchDepthOfField(
+      ID3D12PipelineState* pipeline, const DofConstants& constants,
+      const ui::d3d12::util::DescriptorCpuGpuHandlePair* const* tables,
+      uint32_t groups_x, uint32_t groups_y);
   // The stream output buffers (kStreamOutBufferSize each), created at the
   // first motion capture rather than with the rest, so they take no memory with
   // the temporal upscaler off. False if they couldn't be created.
@@ -745,6 +783,13 @@ class DaoUpscalerImpl {
   ComPtr<ID3D12PipelineState> blur_neighbor_max_pipeline_;
   ComPtr<ID3D12RootSignature> hdr_tonemap_root_signature_;
   ComPtr<ID3D12PipelineState> hdr_tonemap_pipeline_;
+  ComPtr<ID3D12RootSignature> dof_root_signature_;
+  ComPtr<ID3D12PipelineState> dof_focus_pipeline_;
+  ComPtr<ID3D12PipelineState> dof_prefilter_pipeline_;
+  ComPtr<ID3D12PipelineState> dof_blur_pipeline_;
+  ComPtr<ID3D12PipelineState> dof_combine_pipeline_;
+  // Not if its pipelines couldn't be created.
+  bool dof_available_ = false;
 
   // Render resolution inputs.
   Texture color_;
@@ -773,6 +818,20 @@ class DaoUpscalerImpl {
   // way the depth grows.
   uint32_t depth_less_draws_ = 0;
   uint32_t depth_greater_draws_ = 0;
+  // Depth of field: the focus (2x1), the scene at half size and blurred
+  // there, and the scene with it (display size, in upscaled_'s encoding).
+  Texture dof_focus_;
+  Texture dof_half_;
+  Texture dof_blurred_;
+  Texture dof_;
+  // Its strength (0 off to 1), eased; the game mode and field of view of the
+  // last frame upscaled (a change is a cut), whether the focus is to be taken
+  // at once, and the display size its textures couldn't be created at.
+  float dof_strength_ = 0.0f;
+  int32_t dof_mode_ = -1;
+  float dof_fov_ = 0.0f;
+  bool dof_snap_ = true;
+  uint32_t dof_failed_size_[2] = {};
   // Display resolution.
   Texture upscaled_;
   Texture composite_;

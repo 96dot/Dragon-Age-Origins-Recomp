@@ -7,7 +7,8 @@ x86-64 Windows program, with a Direct3D 12 renderer based on Xenia's. It adds:
 - temporal upscaling and anti-aliasing with AMD FSR 4 (RDNA 4), FSR 3.1, Intel XeSS-SR
   or NVIDIA DLSS 4.5 (RTX GPUs, experimental), using motion vectors generated for the
   game's 3D scenes, which also drive optional motion blur (of the camera, characters and
-  objects), and optional FSR 3.1
+  objects), depth of field in conversations and cutscenes (focused on the speaker, as
+  a film camera's lens), and optional FSR 3.1
   frame generation (a frame between each two, for a display at twice the frame rate;
   only real frames are shown on one that can't keep up)
 - neural rendering on AMD RDNA 4 (experimental): lmxxf's open-source port of DLSS 5's

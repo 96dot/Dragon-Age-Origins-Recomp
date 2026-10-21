@@ -9,7 +9,8 @@
 // image's proportions: the tangent of half the angle is multiplied, so a setting
 // of 110 degrees widens the 60-degree gameplay view to 110 degrees across at 16:9,
 // and a conversation shot by as much. In the fly camera (photo mode) the field of
-// view is photo mode's own, when it sets one.
+// view is photo mode's own, when it sets one. The game mode and the field of view
+// passed on are published for depth of field (xe::dao_live::values).
 #include "stdafx.h"
 #include "gpu/camera_fov.h"
 #include "kernel/function.h"
@@ -19,6 +20,8 @@
 
 #include <cmath>
 #include <numbers>
+
+#include "xenia/dao_live_settings.h"
 
 namespace
 {
@@ -103,6 +106,8 @@ namespace
                 // (Rounded to single precision: the game stores it as a float.)
                 ctx.f1.f64 = double(float(std::clamp(scaled, kMinScaledFov, kMaxScaledFov)));
             }
+            xe::dao_live::values.camera_mode.store(mode, std::memory_order_relaxed);
+            xe::dao_live::values.camera_fov.store(float(ctx.f1.f64), std::memory_order_relaxed);
         }
         original(ctx, base);
     }

@@ -32,7 +32,9 @@
 // At the swap, the upscaler's output is composited with the UI (where the
 // front buffer differs from the image the upscaler got, the front buffer is
 // scaled up instead) and replaces the front buffer as the guest output, at the
-// size it is shown at. With frame generation, a frame between the previous one
+// size it is shown at. In conversations and cutscenes, depth of field blurs
+// the upscaler's output first (dao_upscale_dof.cc), from the scene depth. With
+// frame generation, a frame between the previous one
 // and this one is generated from the upscaler's output (dao_upscale_fg.cc) and
 // composited with the UI the same way; the presenter shows it before this one.
 #pragma once

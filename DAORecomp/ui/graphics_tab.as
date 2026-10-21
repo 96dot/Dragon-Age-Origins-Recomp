@@ -147,6 +147,7 @@ var ROWS = [
     { key: "PostProcessing", label: "Post-processing effects", toggle: true },
     { key: "MotionBlur", label: "Motion blur (with temporal upscaling)", values: [0, 1, 2],
       labels: ["Off", "Low", "High"] },
+    { key: "DepthOfField", label: "Depth of field in conversations (with temporal upscaling)", toggle: true },
     { header: "Camera" },
     { key: "Fov", label: "Field of view", values: FOV, labels: FovLabels() },
     { key: "ConversationFov", label: "Field of view in conversations", values: FOV, labels: FovLabels() },

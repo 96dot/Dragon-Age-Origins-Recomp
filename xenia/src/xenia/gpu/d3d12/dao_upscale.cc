@@ -306,6 +306,7 @@ bool DaoUpscalerImpl::Initialize() {
     XELOGE("Upscaler: failed to create the pipelines");
     return false;
   }
+  dof_available_ = InitializeDepthOfField();
   motion_available_ = InitializeMotion();
   if (!motion_available_) {
     XELOGW("Upscaler: motion vectors unavailable");
@@ -1098,15 +1099,22 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
     fg_failed_size_[1] = display_height;
     generate = false;
   }
+  // Depth of field (dao_upscale_dof.cc) in conversations and cutscenes: the
+  // scene from here on is dof_.
+  const bool depth_of_field =
+      UpdateDepthOfField(frame_ms, display_width, display_height);
+  Texture& scene_image = depth_of_field ? dof_ : upscaled_;
   // Its views: the scene's SRV and UAV, the generated frame's SRV, the
   // generated composite's UAV.
   constexpr uint32_t kFrameGenerationViews = 4;
   ui::d3d12::util::DescriptorCpuGpuHandlePair
-      descriptors[kCompositeTables + kBlurViews + kFrameGenerationViews];
+      descriptors[kCompositeTables + kBlurViews + kFrameGenerationViews +
+                  kDofViews];
   const uint32_t blur_views = blur.samples ? kBlurViews : 0;
+  const uint32_t fg_views_count = generate ? kFrameGenerationViews : 0;
   if (!cp_.RequestOneUseSingleViewDescriptors(
-          kCompositeTables + blur_views +
-              (generate ? kFrameGenerationViews : 0),
+          kCompositeTables + blur_views + fg_views_count +
+              (depth_of_field ? kDofViews : 0),
           descriptors)) {
     return NotUpscaled("no descriptors", frontbuffer, frontbuffer_srv, srv_out,
                        hdr_out);
@@ -1120,12 +1128,20 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
   } else {
     blur_motion_valid_ = false;
   }
+  if (depth_of_field) {
+    RecordDepthOfField(
+        render_width, render_height, linear_color, frame_ms,
+        descriptors + kCompositeTables + blur_views + fg_views_count);
+    if (dao_timing::GpuTiming::Enabled()) {
+      dao_timing::GpuTiming::Get().Mark(cp_, "depth of field");
+    }
+  }
   D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
   srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
   srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
   srv.Texture2D.MipLevels = 1;
-  srv.Format = upscaled_.format;
-  device->CreateShaderResourceView(upscaled_.resource.Get(), &srv,
+  srv.Format = scene_image.format;
+  device->CreateShaderResourceView(scene_image.resource.Get(), &srv,
                                    descriptors[0].first);
   device->CreateShaderResourceView(frontbuffer, &frontbuffer_srv,
                                    descriptors[1].first);
@@ -1177,7 +1193,7 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
         descriptors + kCompositeTables + blur_views;
     ui::d3d12::util::DescriptorCpuGpuHandlePair tables[kCompositeTables];
     std::copy_n(descriptors, kCompositeTables, tables);
-    Texture* scene = &upscaled_;
+    Texture* scene = &scene_image;
     if (blur.samples) {
       // The scene blurred, then the composites without blurring again.
       srv.Format = fg_scene_.format;

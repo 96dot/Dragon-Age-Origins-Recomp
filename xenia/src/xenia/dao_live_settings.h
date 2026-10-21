@@ -22,6 +22,7 @@ struct Values {
   std::atomic<bool> frame_generation{false};      // dao_frame_generation
   std::atomic<int32_t> anisotropic_override{-1};  // anisotropic_override
   std::atomic<int32_t> motion_blur{0};            // dao_motion_blur
+  std::atomic<bool> depth_of_field{true};         // dao_depth_of_field
   std::atomic<double> hdr_paper_white{200.0};     // present_hdr_paper_white
   std::atomic<double> hdr_peak{1000.0};           // present_hdr_peak
   std::atomic<double> neural_strength{1.0};       // dao_neural_strength
@@ -33,6 +34,12 @@ struct Values {
   // A copy of the frame rate (the setting or the in-game hotkey's), 0
   // unlimited (DAORecomp/gpu/video.cpp, every frame).
   std::atomic<int32_t> frame_rate{0};
+  // Not settings: the game mode (DAORecomp/kernel/game_modes.h, -1 none) and
+  // the main camera's vertical field of view in radians (0 none) as the
+  // game's camera update last set them (DAORecomp/gpu/camera_fov.cpp, every
+  // frame), for depth of field.
+  std::atomic<int32_t> camera_mode{-1};
+  std::atomic<float> camera_fov{0.0f};
 };
 
 inline Values values;

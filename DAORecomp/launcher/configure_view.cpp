@@ -268,6 +268,9 @@ namespace dao::launcher
             ComboRow("Motion blur", &s.motionBlur, kMotionBlurNames, int(std::size(kMotionBlurNames)));
             HelpText("Blurs what moves (characters, objects, the camera). Needs temporal upscaling; costs GPU "
                      "time while things move, more at High.");
+            ImGui::Checkbox("Depth of field in conversations", &s.depthOfField);
+            HelpText("Blurs the background, and anything close to the camera, around the speaker, as a film "
+                     "camera's lens does. Needs temporal upscaling.");
 
             Section("Camera");
             FovRow("Field of view", &s.fov);
@@ -458,6 +461,7 @@ namespace dao::launcher
             s.shadows = defaults.shadows;
             s.postProcessing = defaults.postProcessing;
             s.motionBlur = defaults.motionBlur;
+            s.depthOfField = defaults.depthOfField;
             s.fov = defaults.fov;
             s.conversationFov = defaults.conversationFov;
         }
