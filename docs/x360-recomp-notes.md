@@ -44,6 +44,11 @@ recipes) is in [porting-playbook.md](porting-playbook.md).
   `scripts/find_switches.py` finds them by concrete execution of the dispatch code. It
   handles nops, reordering, `bgtlr` guards, chained dispatch, `mr` copies and debug
   reloads. Write a finder like it early; missed switches crash far from their cause.
+  Tables with no bounds check (the index is valid by construction) are only reported;
+  each is checked by hand and listed in its `UNBOUNDED`. That includes ones in
+  frameless leaves with no `.pdata`, whose cases are searched for near the `bctr`:
+  DAO's one (`sub_82CB3170`, TU6 `82D7D148`) crashed on entering Aeducan Thaig as an
+  "indirect call to unrecompiled address".
 - **Function boundaries:**
   - **Frameless leaf functions with switches** need explicit bounds.
     `scripts/fix_functions.py` writes them into `config/DAO.toml`.

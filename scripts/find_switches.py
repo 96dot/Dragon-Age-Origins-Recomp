@@ -13,6 +13,8 @@ sys.path.insert(0, __file__.rsplit('\\', 1)[0].rsplit('/', 1)[0])
 from ppc import BASE, IMG, TEXT, BINK, VARIANT, u32, code_words, branch_target, pdata
 
 MASK = 0xFFFFFFFF
+# How far from a bctr in a function with no .pdata its setup and cases are looked for.
+NO_PDATA_REACH = 0x400
 
 
 class Unknown(Exception):
@@ -251,7 +253,7 @@ def find_cmp_before(bc_at, lo):
 
 def candidates(bctr, fn):
     """Yield (cmp_at, bc_at, take) guarding the setup block of this bctr."""
-    lo = fn[0] if fn else bctr - 0x400
+    lo = fn[0] if fn else bctr - NO_PDATA_REACH
     hi = fn[0] + fn[1] if fn else bctr
     S = block_start(bctr, lo)
     # (a) cmplwi + bgt inside the setup block itself
@@ -279,12 +281,13 @@ def candidates(bctr, fn):
 def unbounded_table(bctr, fb):
     """(ri, labels) for a bctr whose setup block indexes a table with a register it
     never bounds (the caller passes a valid index). Cases run from 0 while the
-    target stays inside the function, so the count is only a guess: entries past
+    target stays inside the function (for a frameless leaf with no .pdata, fb None:
+    within NO_PDATA_REACH of the bctr), so the count is only a guess: entries past
     the real end often still land inside it. None if the ctr doesn't come from a
     table read with one register."""
     global COPIES
     if not fb:
-        return None
+        fb = (bctr - NO_PDATA_REACH, 2 * NO_PDATA_REACH)
     COPIES = ()
     # The setup is straight-line code after the block's last branch or call; walk
     # from the latest start that still computes the ctr.
@@ -319,12 +322,18 @@ def unbounded_table(bctr, fb):
 
 
 # Switches without a bounds check, checked by hand: bctr -> case count, per image
-# (DAO_VARIANT). Every other one found is only reported (UNBOUNDED lines).
+# (DAO_VARIANT; 'tu7' shares 'tu6''s, below). Every other one found is only reported
+# (UNBOUNDED lines).
 UNBOUNDED = {
-    # Disc: the same three as TU6's below (82A6F958 and 82A6FA00 = 82B39960 and
-    # 82B39A08, 82E22DC4 = 82EEC3C4).
-    '': {0x82A6F958: 11, 0x82A6FA00: 11, 0x82E22DC4: 16},
+    # Disc: the same four as TU6's below (82A6F958 and 82A6FA00 = 82B39960 and
+    # 82B39A08, 82E22DC4 = 82EEC3C4, 82CB3214 = 82D7D1EC).
+    '': {0x82A6F958: 11, 0x82A6FA00: 11, 0x82CB3214: 7, 0x82E22DC4: 16},
     'tu6': {
+        # tu6_sub_82D7D148, a frameless leaf with no .pdata (its bounds are in
+        # DAO_tu6.toml's AUTO-FUNCTIONS): every path sets r11 to 0-6 with li before
+        # the jump, through 7 addresses stored right after the bctr. Entering Aeducan
+        # Thaig hit case 6 as an unrecompiled call (issue #5).
+        0x82D7D1EC: 7,
         # tu6_sub_823D7748: u16 table at 82169A60, entry 14 is the next table's
         # (outside the function); the callers pass constants 0-9.
         0x823D7794: 14,
@@ -338,6 +347,9 @@ UNBOUNDED = {
         0x82EEC3C4: 16,
     },
 }
+# Title Update 7 runs on 6's build (docs/porting-playbook.md, "Later title updates"):
+# DAO_VARIANT=tu7 must give the same tables as tu6 (scripts/check_tu7.py checks it).
+UNBOUNDED['tu7'] = UNBOUNDED['tu6']
 
 
 def branch_target_bc(a, w):
@@ -413,7 +425,7 @@ def main():
             if a in found_tables:
                 continue
             fb = func_bounds(a)
-            S = block_start(a, fb[0] if fb else a - 0x400)
+            S = block_start(a, fb[0] if fb else a - NO_PDATA_REACH)
             for pa, (pr, pdef, plabels, pfb) in list(found_tables.items()):
                 reach = [i for i, l in enumerate(plabels) if l == S]
                 if not reach or pfb != fb:
@@ -494,7 +506,8 @@ def main():
         for a, ri, default, labels, fb, outside in out_of_fn:
             report.write(f'OUTSIDE {a:08X} fn={fb[0]:08X}+{fb[1]:X} n={len(labels)} first_outside={outside[0]:08X}\n')
         for a, ri, labels, fb in unbounded_found:
-            report.write(f'UNBOUNDED {a:08X} fn={fb[0]:08X}+{fb[1]:X} r{ri} n<={len(labels)} '
+            fn = f'{fb[0]:08X}+{fb[1]:X}' if fb else 'none'
+            report.write(f'UNBOUNDED {a:08X} fn={fn} r{ri} n<={len(labels)} '
                          + ' '.join(f'{l:08X}' for l in labels[:16]) + '\n')
 
 

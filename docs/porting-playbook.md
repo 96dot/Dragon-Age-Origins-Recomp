@@ -67,7 +67,8 @@ constructor at 0x82620A10. Its image is 64 KB bigger, all of it `.reloc`. Code
 generated from 7's patch with `config/DAO_tu6.toml` differs from 6's in exactly those
 six instructions and `PPC_IMAGE_SIZE`. So 7 runs on 6's build: a hook sets the
 version number, and the loader takes either image size, copying no further than the
-build's (the function table follows the image).
+build's (the function table follows the image). `scripts/check_tu7.py` checks that this
+still holds after a change: the six words, the hooks' addresses and the jump tables.
 
 ## DAO's hooks, and how each was found
 

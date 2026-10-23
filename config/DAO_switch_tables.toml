@@ -12747,6 +12747,21 @@ labels = [
     0x82CB15AC,
 ]
 
+# No bounds check (UNBOUNDED in find_switches.py): no default case.
+[[switch]]
+base = 0x82CB3214
+r = 11
+default = 0x0
+labels = [
+    0x82CB3234,
+    0x82CB3240,
+    0x82CB3248,
+    0x82CB3250,
+    0x82CB3258,
+    0x82CB3260,
+    0x82CB326C,
+]
+
 [[switch]]
 base = 0x82CC9B28
 r = 10

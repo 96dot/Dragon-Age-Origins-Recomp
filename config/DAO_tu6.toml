@@ -45,6 +45,7 @@ functions = [
     { address = 0x82B010C0, size = 0xD8 },
     { address = 0x82B5A9F0, size = 0x44 },
     { address = 0x82B5AA38, size = 0x44 },
+    { address = 0x82D7D148, size = 0x108 },
     { address = 0x82E009F0, size = 0x110 },
     { address = 0x82E27AD8, size = 0x114 },
     { address = 0x82EE51B0, size = 0x80 },

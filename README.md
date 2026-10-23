@@ -386,7 +386,8 @@ are tested, and the traps found so far. The build details are below.
   The runtime picks the build at start (`DAORecomp/kernel/game_build.h`); code hooks are
   given both builds' functions with `GAME_HOOK` (one build's with `GAME_HOOK_ONE`), and addresses both builds' with
   `GameAddress`. `scripts/match_build.py` finds a disc function's counterpart in the
-  updated executable, and the analysis scripts take `DAO_VARIANT=tu6`.
+  updated executable, and the analysis scripts take `DAO_VARIANT=tu6` (or `tu7`).
+  `scripts/check_tu7.py` checks that 7 still runs on 6's build after a change.
 - `scripts/stfs.py` lists and extracts Xbox 360 packages (`info`/`extract`); the
   installer uses it. `DAORecomp/content/stfs.cpp` is the same reader for the launcher
   (which has no Python): keep the two in step. `scripts/test_stfs.py` tests both on
