@@ -16,11 +16,12 @@ namespace dao::launcher
 
     namespace
     {
-        // The releases of github.com/96dot/DAORecomp, the 100 newest (GitHub's most
-        // in one answer): a release is among them unless 99 dev releases came
-        // after it. Release pages and installers anywhere else in the list are
-        // ignored (see release_list.cpp).
-        constexpr const char* kReleasesUrl = "https://api.github.com/repos/96dot/DAORecomp/releases?per_page=100";
+        // The releases of github.com/96dot/Dragon-Age-Origins-Recomp, the 100
+        // newest (GitHub's most in one answer): a release is among them unless 99
+        // dev releases came after it. Release pages and installers anywhere else
+        // in the list are ignored (see release_list.cpp).
+        constexpr const char* kReleasesUrl =
+            "https://api.github.com/repos/96dot/Dragon-Age-Origins-Recomp/releases?per_page=100";
         // Sanity bound on the list's size (~5 KB a release).
         constexpr uint64_t kMaxListSize = 4u << 20;
         // Where in the install folder the installer is downloaded to and run from
@@ -359,7 +360,7 @@ namespace dao::launcher
     void Updater::OpenReleasePage() const
     {
         const std::string url = GetRelease().pageUrl;
-        if (url.starts_with(kReleasePagePrefix))
+        if (IsReleasePage(url))
             ShellExecuteW(nullptr, L"open", Widen(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     }
 

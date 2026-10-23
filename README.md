@@ -142,9 +142,11 @@ There are two update channels, chosen in *Configure → Advanced* (or with
   trying what's next early. They can have bugs. An install made from a dev release starts
   on this channel.
 
-The check asks `api.github.com/repos/96dot/DAORecomp/releases` for the list of releases;
-the request carries only the program's version. Turn it off in *Configure → Advanced*
-or with `check_updates = false` in the `[launcher]` section of `userdata/config.toml`.
+The check asks `api.github.com/repos/96dot/Dragon-Age-Origins-Recomp/releases` for the
+list of releases; the request carries only the program's version. Launchers up to
+v0.10.0-dev.5 don't see releases since the repository was renamed (from `DAORecomp`):
+update those by hand once. Turn the check off in *Configure → Advanced* or with
+`check_updates = false` in the `[launcher]` section of `userdata/config.toml`.
 Builds from source (`dev`, or a changed checkout of a release or dev release) don't check.
 With the launcher hidden there is no check: open it now and then (hold Shift).
 

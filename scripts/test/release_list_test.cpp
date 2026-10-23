@@ -29,9 +29,9 @@ namespace
         std::string_view installer = "DAORecomp.exe", std::string_view digest = kDigest)
     {
         return fmt::format(R"({{"tag_name":"{0}","name":"{0}","draft":{1},"prerelease":{2},"body":"notes",)"
-                           R"("html_url":"https://github.com/96dot/DAORecomp/releases/tag/{0}","assets":[)"
+                           R"("html_url":"https://github.com/96dot/Dragon-Age-Origins-Recomp/releases/tag/{0}","assets":[)"
                            R"({{"name":"{3}","size":1000,"digest":"{4}",)"
-                           R"("browser_download_url":"https://github.com/96dot/DAORecomp/releases/download/{0}/{3}"}}]}})",
+                           R"("browser_download_url":"https://github.com/96dot/Dragon-Age-Origins-Recomp/releases/download/{0}/{3}"}}]}})",
             tag, draft, prerelease, installer, digest);
     }
 
@@ -104,12 +104,25 @@ int main()
              Item("v0.11.0", false, false, "DAORecomp.exe", ""), Item("v0.11.0-dirty"), Item("vX"),
              With(next, "\"size\":1000", "\"size\":0"), With(next, "\"size\":1000", "\"size\":268435457"),
              With(next, "\"size\":1000", "\"size\":\"1000\""),
-             With(next, "https://github.com/96dot/DAORecomp/releases/tag", "https://github.com/other/repo/releases/tag"),
-             With(next, "https://github.com/96dot/DAORecomp/releases/download/", "https://example.com/"),
+             With(next, "96dot/Dragon-Age-Origins-Recomp/releases/tag", "other/repo/releases/tag"),
+             With(next, "96dot/Dragon-Age-Origins-Recomp/releases/tag", "96dot/DAORecompX/releases/tag"),
+             With(next, "https://github.com/96dot/Dragon-Age-Origins-Recomp/releases/download/", "https://example.com/"),
+             With(next, "Dragon-Age-Origins-Recomp/releases/download", "Dragon-Age-Origins-Recomp/releases/downloads"),
              With(next, "releases/download/v0.11.0", "releases/download/../../../other/repo/releases/download/v0.11.0"),
              With(next, "releases/download/v0.11.0", "releases/download/%2e%2e/v0.11.0") })
         Expect(Offered(List({ bad, Item("v0.10.0") }), "v0.9.0", UpdateChannel::Dev) == "v0.10.0",
             ("skipped: " + bad.substr(0, 40)).c_str());
+    // The repository's name before, which GitHub redirects: its pages and installers are
+    // fine too.
+    Expect(Offered(List({ With(With(next, "Dragon-Age-Origins-Recomp/releases/tag", "DAORecomp/releases/tag"),
+                       "Dragon-Age-Origins-Recomp/releases/download", "DAORecomp/releases/download") }),
+               "v0.9.0", UpdateChannel::Dev) == "v0.11.0",
+        "the repository's former name");
+    Expect(IsReleasePage("https://github.com/96dot/Dragon-Age-Origins-Recomp/releases/tag/v0.11.0") &&
+            IsReleasePage("https://github.com/96dot/DAORecomp/releases/tag/v0.11.0") &&
+            !IsReleasePage("https://github.com/96dot/Dragon-Age-Origins-Recomp/issues") &&
+            !IsReleasePage("https://github.com/96dot/DAORecomp/releases/../../other"),
+        "release pages");
     // The size limit itself is fine; a missing name is the tag; long notes are cut at a
     // line end.
     Expect(Offered(List({ With(next, "\"size\":1000", "\"size\":268435456") }), "v0.9.0", UpdateChannel::Dev) ==

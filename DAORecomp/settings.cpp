@@ -298,7 +298,8 @@ namespace dao
 [launcher]
 # Show the launcher before starting the game (hold Shift at startup to show it anyway).
 show = {}
-# Look for a newer release on GitHub (github.com/96dot/DAORecomp) when the launcher opens.
+# Look for a newer release on GitHub (github.com/96dot/Dragon-Age-Origins-Recomp) when
+# the launcher opens.
 check_updates = {}
 # The updates offered: "release" (releases only) or "dev" (dev releases too: test builds
 # published between releases, for trying what's next; they can have bugs). Unset: "dev"
