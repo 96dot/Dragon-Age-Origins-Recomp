@@ -136,6 +136,9 @@ inline bool WriteShaderStorageHeader(FILE* file) {
 // Callback should return true to continue reading, false to stop.
 // Far more than any Xenos shader: larger counts are corruption.
 constexpr uint32_t kMaxStoredUcodeDwords = 0xFFFF;
+// DAO: far more pipelines than a game makes: a larger pipeline storage file is
+// damaged, and is reset instead of allocated for.
+constexpr size_t kMaxStoredPipelines = size_t(1) << 20;
 
 template <typename Callback>
 inline uint64_t ReadShaderEntries(FILE* file, Callback&& callback) {
@@ -266,6 +269,9 @@ class ShaderStorageWriter {
                         sizeof(pipeline_header)) /
                            sizeof(TPipelineStoredDescription)
                      : 0);
+      if (pipeline_storage_told_count > kMaxStoredPipelines) {
+        pipeline_storage_told_count = 0;
+      }
       if (pipeline_storage_told_count) {
         xe::filesystem::Seek(pipeline_storage_file_,
                              int64_t(sizeof(pipeline_header)), SEEK_SET);
