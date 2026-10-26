@@ -40,6 +40,16 @@ x86-64 Windows program, with a Direct3D 12 renderer based on Xenia's. It adds:
 game: an ISO image of the Xbox 360 disc. The installer extracts it, translates the
 game's code to C++ on your computer, and builds the program.
 
+## Screenshots
+
+<p>
+  <img src="docs/screenshots/title-screen.webp" width="49%" alt="The game's title screen">
+  <img src="docs/screenshots/launcher-configure.webp" width="49%" alt="The launcher's Configure page: rendering resolution and temporal upscaling">
+</p>
+<p>
+  <img src="docs/screenshots/photo-mode.webp" width="49%" alt="Photo mode with a 21:9 frame">
+</p>
+
 ## Installing
 
 You need:
