@@ -37,13 +37,17 @@ _listing = {}
 
 
 def entries(directory):
-    """{lowercase name: actual name} of a directory (cached)."""
+    """{lowercase name: [actual names]} of a directory (cached). A name can have several:
+    xwin adds lowercase symlinks beside the SDK's own names, in no fixed listing order."""
     if directory not in _listing:
         try:
             names = os.listdir(directory)
         except OSError:
             names = []
-        _listing[directory] = {n.lower(): n for n in names}
+        listing = {}
+        for n in sorted(names):
+            listing.setdefault(n.lower(), []).append(n)
+        _listing[directory] = listing
     return _listing[directory]
 
 
@@ -56,9 +60,10 @@ def resolve(base, include):
         if part == "..":
             current = os.path.dirname(current)
             continue
-        actual = entries(current).get(part.lower())
-        if actual is None:
+        names = entries(current).get(part.lower())
+        if names is None:
             return False, False
+        actual = part if part in names else names[0]
         exact = exact and actual == part
         current = os.path.join(current, actual)
     return True, exact

@@ -28,7 +28,7 @@
 #include "third_party/stb/stb_image.h"
 
 #if XE_PLATFORM_WIN32
-#include <ShlObj_core.h>
+#include <shlobj_core.h>
 #endif
 
 #if XE_PLATFORM_LINUX
