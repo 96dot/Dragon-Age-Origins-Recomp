@@ -66,8 +66,9 @@ bool Seek(FILE* file, int64_t offset, int origin);
 int64_t Tell(FILE* file);
 
 // Reduces the size of a stdio file opened for writing. The file pointer is
-// clamped. If this returns false, the size of the file and the file pointer are
-// undefined.
+// clamped to the new length, and (DAO) always set with a seek, so the stream
+// can be written after being read. If this returns false, the size of the file
+// and the file pointer are undefined.
 bool TruncateStdioFile(FILE* file, uint64_t length);
 
 // Copy file from source to destination in defined chunks and optional progress

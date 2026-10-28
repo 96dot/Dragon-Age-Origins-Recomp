@@ -435,8 +435,8 @@ namespace dao::launcher
                 else if (state == Updater::State::Failed)
                     ImGui::Text("Can't check: %s.", updater.GetError().c_str());
             }
-            HelpText("Asks github.com/96dot/DAORecomp for its list of releases; the request carries only this "
-                     "version number.");
+            HelpText("Asks github.com/96dot/Dragon-Age-Origins-Recomp for its list of releases; the request "
+                     "carries only this version number.");
         }
 
         // Each puts a tab's settings back to their defaults.

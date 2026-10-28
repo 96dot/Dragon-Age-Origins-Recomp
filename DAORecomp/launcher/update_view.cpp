@@ -118,8 +118,9 @@ namespace dao::launcher
             {
                 if (ImGui::Button("Open the release page"))
                     updater.OpenReleasePage();
-                HelpText("The launcher can't run its installer here (under Wine or Proton, or in a folder the "
-                         "installer didn't make): see the README's \"Updating\".");
+                HelpText("The launcher can't run its installer here. Under Wine or Proton, update the checkout "
+                         "(git pull) and run python3 install.py --dest <install folder> again; in a folder the "
+                         "installer didn't make, run the release's DAORecomp.exe. See the README's \"Updating\".");
             }
             else if (state == Updater::State::Downloading)
             {

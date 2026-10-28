@@ -141,6 +141,18 @@ python -I scripts/as2c.py DAORecomp/ui/pause_menu.as DAORecomp/ui/pause_menu_as.
 installer fetches. `scripts/test/release_list_test.cpp` tests the launcher's choice of
 update (its build command is in `scripts/test/README.md`).
 
+### Title Update 7 (needs the game's dumps)
+
+Title Update 7 runs on Title Update 6's build, so every hook, address and jump table
+added for 6 must hold for 7 too. After changing one, run
+
+```
+python -I scripts/check_tu7.py
+```
+
+It needs `analysis/tu6` and `analysis/tu7` (dumps of the patched images, see
+`docs/porting-playbook.md`, "Later title updates"), so CI can't run it.
+
 ### Running the game unattended
 
 Most changes can only be judged by running the game. `scripts/test/` has the kit; its

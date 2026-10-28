@@ -20,7 +20,9 @@ namespace dao::launcher
 {
     namespace
     {
-        constexpr std::string_view kReleaseDownloadPrefix = "https://github.com/96dot/DAORecomp/releases/download/";
+        // Under one of kRepositories.
+        constexpr std::string_view kReleasesFolder = "/releases/";
+        constexpr std::string_view kDownloadFolder = "/releases/download/";
         // Sanity bound on the installer's size (~15 MB at v0.2.0).
         constexpr uint64_t kMaxInstallerSize = 256u << 20;
         constexpr std::string_view kDigestPrefix = "sha256:";
@@ -99,6 +101,17 @@ namespace dao::launcher
                 url.find('\\') == std::string_view::npos;
         }
 
+        // Whether `url` is under `folder` of one of kRepositories (as UnderPrefix).
+        bool InRepository(std::string_view url, std::string_view folder)
+        {
+            for (const std::string_view repository : kRepositories)
+            {
+                if (url.starts_with(repository) && UnderPrefix(url.substr(repository.size()), folder))
+                    return true;
+            }
+            return false;
+        }
+
         // A number of digits at `at` (no sign, no leading zero but "0"), into `out`.
         bool ParseNumber(const char*& at, const char* end, int& out)
         {
@@ -139,6 +152,11 @@ namespace dao::launcher
         return version;
     }
 
+    bool IsReleasePage(std::string_view url)
+    {
+        return InRepository(url, kReleasesFolder);
+    }
+
     bool FindUpdate(std::string_view json, std::string_view current, UpdateChannel channel,
         std::optional<Release>& update)
     {
@@ -165,7 +183,7 @@ namespace dao::launcher
                 continue;
             const std::string_view page = String(item, "html_url");
             const auto assets = item.FindMember("assets");
-            if (!UnderPrefix(page, kReleasePagePrefix) || assets == item.MemberEnd() || !assets->value.IsArray())
+            if (!IsReleasePage(page) || assets == item.MemberEnd() || !assets->value.IsArray())
                 continue;
             for (const rapidjson::Value& asset : assets->value.GetArray())
             {
@@ -174,7 +192,7 @@ namespace dao::launcher
                 const std::string_view url = String(asset, "browser_download_url");
                 const auto size = asset.FindMember("size");
                 const auto sha256 = ParseSha256(String(asset, "digest"));
-                if (!UnderPrefix(url, kReleaseDownloadPrefix) || size == asset.MemberEnd() ||
+                if (!InRepository(url, kDownloadFolder) || size == asset.MemberEnd() ||
                     !size->value.IsUint64() || size->value.GetUint64() == 0 ||
                     size->value.GetUint64() > kMaxInstallerSize || !sha256)
                     continue;

@@ -95,12 +95,13 @@ bool TruncateStdioFile(FILE* file, uint64_t length) {
   if (_chsize_s(_fileno(file), int64_t(length))) {
     return false;
   }
-  if (uint64_t(position) > length) {
-    if (!Seek(file, 0, SEEK_END)) {
-      return false;
-    }
-  }
-  return true;
+  // DAO: a seek even where the position stays: C requires one between reading
+  // and writing an update stream (fflush counts only after writing), and the
+  // UCRT the installer links (xwin's) fails every later fwrite without it,
+  // which kept the pipeline storage from growing (issue #7).
+  return Seek(file,
+              uint64_t(position) > length ? int64_t(length) : position,
+              SEEK_SET);
 }
 
 class Win32FileHandle : public FileHandle {

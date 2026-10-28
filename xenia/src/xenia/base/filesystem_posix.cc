@@ -118,12 +118,11 @@ bool TruncateStdioFile(FILE* file, uint64_t length) {
   if (ftruncate(fileno(file), length)) {
     return false;
   }
-  if (uint64_t(position) > length) {
-    if (!Seek(file, 0, SEEK_END)) {
-      return false;
-    }
-  }
-  return true;
+  // DAO: a seek even where the position stays: an update stream needs one
+  // between reading and writing (as in filesystem_win.cc).
+  return Seek(file,
+              uint64_t(position) > length ? int64_t(length) : position,
+              SEEK_SET);
 }
 
 static uint64_t convertUnixtimeToWinFiletime(time_t unixtime) {

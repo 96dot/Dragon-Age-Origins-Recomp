@@ -21,9 +21,12 @@ namespace dao::launcher
         std::array<uint8_t, 32> installerSha256 = {};
     };
 
-    // Release pages are only opened at this address (and installers only taken
-    // from its download/ folder, see release_list.cpp).
-    inline constexpr std::string_view kReleasePagePrefix = "https://github.com/96dot/DAORecomp/releases/";
+    // The repository, under its name and the one it had before (which GitHub
+    // redirects to it, and the only one launchers up to v0.10.0-dev.5 accept).
+    // Release pages are only opened under its releases/ (see IsReleasePage) and
+    // installers only taken from its releases/download/.
+    inline constexpr std::array<std::string_view, 2> kRepositories = {
+        "https://github.com/96dot/Dragon-Age-Origins-Recomp", "https://github.com/96dot/DAORecomp" };
     // The exe players download (setup, scripts/build_setup_exe.py): it updates
     // the install it's given. Releases also carry it as DAORecomp-Installer.exe,
     // the name launchers up to v0.5.1 look for.
@@ -38,6 +41,9 @@ namespace dao::launcher
     // (Settings' DefaultUpdateChannel is defined in release_list.cpp, with this.)
     std::optional<VersionNumber> ParseVersion(std::string_view tag);
     inline bool IsDevRelease(const VersionNumber& version) { return version[3] != kNotDevRelease; }
+
+    // Whether `url` is a page under one of kRepositories' releases/.
+    bool IsReleasePage(std::string_view url);
 
     // Sets `update` to the newest release in GitHub's release list (JSON) newer
     // than `current` with a verifiable installer, on `channel` (Release: not dev

@@ -77,6 +77,11 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   backed by DAORecomp's guest memory (`DAORecomp/gpu/xenia_memory.cpp`).
 - `base/mapped_memory_win.cc`,
   `base/platform_win.h`.
+- `base/filesystem.h`, `base/filesystem_win.cc`, `base/filesystem_posix.cc`:
+  `TruncateStdioFile` always seeks, so a file can be written after being read: the
+  pipeline and shader storage files are (the installer's CRT failed every pipeline
+  storage write without it). `gpu/shader_storage.h` resets a pipeline storage file too
+  large to be a real one instead of allocating for it.
 - GPU: `gpu/command_processor.*`, `gpu/pm4_command_processor_implement.h`,
   `gpu/graphics_system.*`, `gpu/gpu_flags.cc`, `gpu/draw_util.*`, `gpu/primitive_processor.cc`,
   `gpu/shader_storage.h`, `gpu/shared_memory.*`, `gpu/texture_cache.*`.

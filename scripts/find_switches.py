@@ -10,9 +10,11 @@ usage: find_switches.py <out.toml> [report.txt]
 """
 import sys
 sys.path.insert(0, __file__.rsplit('\\', 1)[0].rsplit('/', 1)[0])
-from ppc import BASE, IMG, TEXT, BINK, u32, code_words, branch_target, pdata
+from ppc import BASE, IMG, TEXT, BINK, VARIANT, u32, code_words, branch_target, pdata
 
 MASK = 0xFFFFFFFF
+# How far from a bctr in a function with no .pdata its setup and cases are looked for.
+NO_PDATA_REACH = 0x400
 
 
 class Unknown(Exception):
@@ -251,7 +253,7 @@ def find_cmp_before(bc_at, lo):
 
 def candidates(bctr, fn):
     """Yield (cmp_at, bc_at, take) guarding the setup block of this bctr."""
-    lo = fn[0] if fn else bctr - 0x400
+    lo = fn[0] if fn else bctr - NO_PDATA_REACH
     hi = fn[0] + fn[1] if fn else bctr
     S = block_start(bctr, lo)
     # (a) cmplwi + bgt inside the setup block itself
@@ -274,6 +276,80 @@ def candidates(bctr, fn):
         c = find_cmp_before(S - 4, lo)
         if c is not None:
             yield c, S - 4, set()
+
+
+def unbounded_table(bctr, fb):
+    """(ri, labels) for a bctr whose setup block indexes a table with a register it
+    never bounds (the caller passes a valid index). Cases run from 0 while the
+    target stays inside the function (for a frameless leaf with no .pdata, fb None:
+    within NO_PDATA_REACH of the bctr), so the count is only a guess: entries past
+    the real end often still land inside it. None if the ctr doesn't come from a
+    table read with one register."""
+    global COPIES
+    if not fb:
+        fb = (bctr - NO_PDATA_REACH, 2 * NO_PDATA_REACH)
+    COPIES = ()
+    # The setup is straight-line code after the block's last branch or call; walk
+    # from the latest start that still computes the ctr.
+    lo = block_start(bctr, fb[0])
+    table_read = False
+    for S in range(bctr - 4, lo - 4, -4):
+        w = u32(S)
+        if w >> 26 in (16, 18) or is_bclr(w):
+            break
+        # lwzx lhzx lbzx lhax: without one the ctr is computed, not read
+        table_read |= w >> 26 == 31 and (w >> 1) & 0x3FF in (23, 279, 87, 343)
+        if not table_read:
+            continue
+        try:
+            run(S, bctr, 'none', 0, set())
+            return None  # ctr is constant without any index: not a table
+        except Unknown:
+            pass
+        for ri in range(32):
+            labels = []
+            for i in range(1024):
+                try:
+                    ctr, rg = run(S, bctr, ri, i, set())
+                except Unknown:
+                    break
+                if rg.get(ri) != i or ctr & 3 or not fb[0] <= ctr < fb[0] + fb[1]:
+                    break
+                labels.append(ctr)
+            if labels:
+                return ri, labels
+    return None
+
+
+# Switches without a bounds check, checked by hand: bctr -> case count, per image
+# (DAO_VARIANT; 'tu7' shares 'tu6''s, below). Every other one found is only reported
+# (UNBOUNDED lines).
+UNBOUNDED = {
+    # Disc: the same four as TU6's below (82A6F958 and 82A6FA00 = 82B39960 and
+    # 82B39A08, 82E22DC4 = 82EEC3C4, 82CB3214 = 82D7D1EC).
+    '': {0x82A6F958: 11, 0x82A6FA00: 11, 0x82CB3214: 7, 0x82E22DC4: 16},
+    'tu6': {
+        # tu6_sub_82D7D148, a frameless leaf with no .pdata (its bounds are in
+        # DAO_tu6.toml's AUTO-FUNCTIONS): every path sets r11 to 0-6 with li before
+        # the jump, through 7 addresses stored right after the bctr. Entering Aeducan
+        # Thaig hit case 6 as an unrecompiled call (issue #5).
+        0x82D7D1EC: 7,
+        # tu6_sub_823D7748: u16 table at 82169A60, entry 14 is the next table's
+        # (outside the function); the callers pass constants 0-9.
+        0x823D7794: 14,
+        # A second dispatch on r10 inside cases of the switches at 82B3991C and
+        # 82B399C4, which bound it (cmplwi r10,10). The chained-dispatch pass misses
+        # them: their block starts after the first switch's inline table.
+        0x82B39960: 11,
+        0x82B39A08: 11,
+        # r29 is a 4-bit field (rlwinm at 82EEC088), bound by cmplwi r29,15 for the
+        # switch at 82EEC0B8.
+        0x82EEC3C4: 16,
+    },
+}
+# Title Update 7 runs on 6's build (docs/porting-playbook.md, "Later title updates"):
+# DAO_VARIANT=tu7 must give the same tables as tu6 (scripts/check_tu7.py checks it).
+UNBOUNDED['tu7'] = UNBOUNDED['tu6']
 
 
 def branch_target_bc(a, w):
@@ -349,7 +425,7 @@ def main():
             if a in found_tables:
                 continue
             fb = func_bounds(a)
-            S = block_start(a, fb[0] if fb else a - 0x400)
+            S = block_start(a, fb[0] if fb else a - NO_PDATA_REACH)
             for pa, (pr, pdef, plabels, pfb) in list(found_tables.items()):
                 reach = [i for i, l in enumerate(plabels) if l == S]
                 if not reach or pfb != fb:
@@ -379,11 +455,42 @@ def main():
                 tailcalls -= 1
                 progress = True
                 break
+
+    # Table reads with no bounds check: emit the hand-checked ones, report the rest.
+    accepted = UNBOUNDED.get(VARIANT, {})
+    unbounded_found = []
+    for a in unbounded:
+        if a in found_tables:
+            continue
+        fb = func_bounds(a)
+        u = unbounded_table(a, fb)
+        if u is None:
+            if a in accepted:
+                sys.exit(f'{a:08X}: listed in UNBOUNDED but no table read found')
+            continue
+        ri, labels = u
+        if a not in accepted:
+            unbounded_found.append((a, ri, labels, fb))
+            continue
+        if len(labels) < accepted[a]:
+            sys.exit(f'{a:08X}: only {len(labels)} cases inside the function, UNBOUNDED says {accepted[a]}')
+        labels = labels[:accepted[a]]
+        found_tables[a] = (ri, 0, labels, fb)
+        tables.append((a, ri, 0, labels, fb, []))
+        if any(f[0] == a for f in failures):
+            failures[:] = [f for f in failures if f[0] != a]
+        else:
+            tailcalls -= 1
+    missing = set(accepted) - set(found_tables)
+    if missing:
+        sys.exit('UNBOUNDED entries not found: ' + ' '.join(f'{a:08X}' for a in sorted(missing)))
     tables.sort()
 
     with open(out_path, 'w') as f:
         f.write('# Generated by scripts/find_switches.py (concrete execution of switch setup)\n\n')
         for a, ri, default, labels, fb, outside in tables:
+            if a in accepted:
+                f.write('# No bounds check (UNBOUNDED in find_switches.py): no default case.\n')
             f.write(f'[[switch]]\nbase = 0x{a:X}\nr = {ri}\ndefault = 0x{default:X}\nlabels = [\n')
             for l in labels:
                 f.write(f'    0x{l:X},\n')
@@ -392,11 +499,16 @@ def main():
     print(f'{len(tables)} switch tables, {len(failures)} rejected, {tailcalls} bctr without bound (indirect tail calls)')
     out_of_fn = [t for t in tables if t[5]]
     print(f'{len(out_of_fn)} tables have labels outside their .pdata function')
+    print(f'{len(unbounded_found)} table reads without a bounds check not in UNBOUNDED (report only)')
     if report:
         for a, e in failures:
             report.write(f'REJECT {a:08X} {e}\n')
         for a, ri, default, labels, fb, outside in out_of_fn:
             report.write(f'OUTSIDE {a:08X} fn={fb[0]:08X}+{fb[1]:X} n={len(labels)} first_outside={outside[0]:08X}\n')
+        for a, ri, labels, fb in unbounded_found:
+            fn = f'{fb[0]:08X}+{fb[1]:X}' if fb else 'none'
+            report.write(f'UNBOUNDED {a:08X} fn={fn} r{ri} n<={len(labels)} '
+                         + ' '.join(f'{l:08X}' for l in labels[:16]) + '\n')
 
 
 if __name__ == '__main__':
