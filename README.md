@@ -217,6 +217,9 @@ read with the game closed.)
   stuck while closing, the launcher offers to end it after 15 seconds. If Windows still
   can't let go of it after that, Steam won't start again until the PC is restarted. The old
   `shortcuts.vdf` is kept beside it as `shortcuts.vdf.daorecomp-backup`.
+
+  In the game, F11 switches between fullscreen and a window until the game is closed
+  (the Graphics tab's *Fullscreen* saves it).
 - **Linux:** the program is a Windows executable; run it with Wine or Proton.
   - Steam: *Add a Non-Steam Game* → `DAORecomp.exe`, then in its properties force a
     Proton version (Proton includes vkd3d-proton for Direct3D 12).

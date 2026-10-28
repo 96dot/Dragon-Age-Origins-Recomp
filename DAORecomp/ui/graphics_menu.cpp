@@ -150,8 +150,9 @@ namespace dao::ui
         {
             if (!s_menu)
                 s_menu = GetSettings();
-            // F10 toggles it too.
+            // F10 and F11 toggle these too.
             s_menu->frameRate = gpu::FrameRate();
+            s_menu->fullscreen = gpu::XeniaFullscreen();
             return *s_menu;
         }
 

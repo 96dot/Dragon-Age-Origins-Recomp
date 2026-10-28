@@ -416,10 +416,11 @@ int main(int argc, char** argv)
     // Hotkeys (game window focused): F6 pauses neural rendering and resumes it, F7
     // opens the cheats menu and closes it, F8 turns depth of field off and on (debug:
     // not saved), F10 switches between the game's own 30 fps and the frame rate set,
-    // F12 saves the frame history (DAO_FRAME_HISTORY).
+    // F11 between fullscreen and a window (not saved), F12 saves the frame history
+    // (DAO_FRAME_HISTORY).
     // Polled at 20 Hz: each poll is a few window system calls (round trips to wineserver on Proton), and a key press is longer.
     std::thread([frameHistory, neural = dao::NeuralRenderingOn(dao::GetSettings())] {
-        constexpr int keys[] = { VK_F6, VK_F7, VK_F8, VK_F10, VK_F12 };
+        constexpr int keys[] = { VK_F6, VK_F7, VK_F8, VK_F10, VK_F11, VK_F12 };
         bool wasDown[std::size(keys)] = {};
         for (;;)
         {
@@ -450,6 +451,8 @@ int main(int argc, char** argv)
                     }
                     else if (keys[i] == VK_F10)
                         dao::gpu::ToggleGameFrameRate();
+                    else if (keys[i] == VK_F11)
+                        dao::gpu::XeniaSetFullscreen(!dao::gpu::XeniaFullscreen());
                     else if (keys[i] == VK_F12 && frameHistory)
                         dao::gpu::SaveFrameHistory();
                 }

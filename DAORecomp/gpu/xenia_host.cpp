@@ -57,6 +57,9 @@ namespace dao::gpu
         std::unique_ptr<xe::ui::Win32WindowedAppContext> s_appContext;
 
         std::unique_ptr<xe::ui::Window> s_window;
+        // The window's fullscreen as last asked for (the window itself changes on the
+        // UI thread, later): F11 and the Graphics menu read it from other threads.
+        std::atomic<bool> s_fullscreen{ false };
         std::unique_ptr<xe::gpu::d3d12::D3D12GraphicsSystem> s_graphics;
         std::recursive_mutex s_interruptMutex;
 
@@ -204,6 +207,7 @@ namespace dao::gpu
                 ready.set_value(false);
                 return;
             }
+            s_fullscreen.store(settings.fullscreen, std::memory_order_relaxed);
             if (settings.fullscreen)
                 s_window->SetFullscreen(true);
             else
@@ -268,6 +272,7 @@ namespace dao::gpu
     {
         if (!s_window)
             return;
+        s_fullscreen.store(fullscreen, std::memory_order_relaxed);
         s_appContext->CallInUIThread([fullscreen] {
             if (s_window->IsFullscreen() == fullscreen)
                 return;
@@ -280,6 +285,11 @@ namespace dao::gpu
                     settings.windowHeight);
             }
         });
+    }
+
+    bool XeniaFullscreen()
+    {
+        return s_fullscreen.load(std::memory_order_relaxed);
     }
 
     void XeniaSetOutputScaling(Upscaler upscaler, float sharpness)

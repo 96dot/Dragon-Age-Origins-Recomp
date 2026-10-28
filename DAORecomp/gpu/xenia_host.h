@@ -37,6 +37,8 @@ namespace dao::gpu
     // Live changes from the in-game Graphics menu, from any thread (applied on the
     // UI thread, asynchronously).
     void XeniaSetFullscreen(bool fullscreen);
+    // Fullscreen as last set (by the settings, the Graphics menu or F11).
+    bool XeniaFullscreen();
     void XeniaSetOutputScaling(Upscaler upscaler, float sharpness);
 
     // Low latency's wait, on the game's thread once a frame just before it reads the
