@@ -59,7 +59,10 @@ namespace dao::gpu
         std::unique_ptr<xe::ui::Window> s_window;
         // The window's fullscreen as last asked for (the window itself changes on the
         // UI thread, later): F11 and the Graphics menu read it from other threads.
+        // s_fullscreenMutex keeps the requests reaching the UI thread in the order
+        // they were stored in.
         std::atomic<bool> s_fullscreen{ false };
+        std::mutex s_fullscreenMutex;
         std::unique_ptr<xe::gpu::d3d12::D3D12GraphicsSystem> s_graphics;
         std::recursive_mutex s_interruptMutex;
 
@@ -272,6 +275,7 @@ namespace dao::gpu
     {
         if (!s_window)
             return;
+        std::lock_guard lock(s_fullscreenMutex);
         s_fullscreen.store(fullscreen, std::memory_order_relaxed);
         s_appContext->CallInUIThread([fullscreen] {
             if (s_window->IsFullscreen() == fullscreen)

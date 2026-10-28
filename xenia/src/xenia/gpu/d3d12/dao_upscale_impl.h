@@ -664,9 +664,10 @@ class DaoUpscalerImpl {
   bool InitializeDepthOfField();
   // Its strength for a frame upscaled now, eased in and out with the game's
   // shots, and its textures (created while it's enabled, before the first
-  // shot); false if it's off this frame.
+  // shot, released while it's not); false if it's off this frame.
   bool UpdateDepthOfField(float frame_ms, uint32_t display_width,
                           uint32_t display_height);
+  void ReleaseDepthOfField();
   // Its passes, from upscaled_ (and depth_) into dof_out_ (left readable), after
   // UpdateDepthOfField returned true; descriptors: kDofViews.
   void RecordDepthOfField(

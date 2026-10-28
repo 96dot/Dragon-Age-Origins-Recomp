@@ -121,7 +121,7 @@ namespace dao
         // Motion blur of the 3D scenes, from temporal upscaling's motion vectors (so
         // only with it): 0 off, 1 low, up to kMaxMotionBlur high.
         int motionBlur = 0;
-        // Depth of field in conversations and cutscenes, with temporal upscaling (it
+        // Depth of field in conversations (and, it seems, cutscenes), with temporal upscaling (it
         // blurs the upscaled scene): the people nearest the camera in the middle of
         // the picture sharp, the scene behind them (and anything in front of them)
         // blurred, as a film camera's lens does.

@@ -25,9 +25,9 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
 - `dao_live_settings.h`: the settings the in-game Graphics menu changes while the
   game runs (vsync, low latency, temporal sharpness, anisotropic filtering, motion
   blur, depth of field, frame generation, HDR paper white and peak, neural rendering's
-  strength and frame rate guard; and the game's frame rate, and whether its camera is in
-  a conversation's or cutscene's shots, with its field of view), as atomics the GPU, presenter and render
-  threads read instead of their cvars (also in the upstream files `d3d12_texture_cache.cc` and
+  strength and frame rate guard; the game's frame rate; and, for depth of field, whether
+  its camera is in a conversation's or cutscene's shots, and its field of view), as
+  atomics the GPU, presenter and render threads read instead of their cvars (also in the upstream files `d3d12_texture_cache.cc` and
   `d3d12_presenter.cc`).
 - `gpu/d3d12/dao_upscale.*`: temporal upscaling (FidelityFX, XeSS or DLSS), motion vectors,
   motion blur: `dao_upscale.h` is its interface, `dao_upscale_impl.h` the class its

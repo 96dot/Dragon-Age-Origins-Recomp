@@ -150,7 +150,8 @@ namespace dao::ui
         {
             if (!s_menu)
                 s_menu = GetSettings();
-            // F10 and F11 toggle these too.
+            // F8, F10 and F11 toggle these too.
+            s_menu->depthOfField = xe::dao_live::Load(xe::dao_live::values.depth_of_field);
             s_menu->frameRate = gpu::FrameRate();
             s_menu->fullscreen = gpu::XeniaFullscreen();
             return *s_menu;

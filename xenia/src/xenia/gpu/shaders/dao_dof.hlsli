@@ -20,6 +20,8 @@ Texture2D<float> dao_dof_depth : register(t0);
 Texture2D<float> dao_dof_focus : register(t1);
 SamplerState dao_dof_linear : register(s0);
 
+// Mirrored by DofConstants and kDofFlag* in d3d12/dao_upscale_impl.h: keep them
+// in step.
 cbuffer DaoDofConstants : register(b0) {
   uint2 dao_dof_display_size;
   // dao_dof_display_size / 2, rounded up.
@@ -31,7 +33,7 @@ cbuffer DaoDofConstants : register(b0) {
   float dao_dof_aperture;
   float dao_dof_max_radius;
   // How much of the effect is applied, 0 to 1 (eased in and out with the
-  // game mode).
+  // game's shots).
   float dao_dof_strength;
   // How far the focus moves towards the new one each frame, 0 to 1.
   float dao_dof_focus_rate;

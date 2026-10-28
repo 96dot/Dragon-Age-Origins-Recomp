@@ -48,7 +48,7 @@ namespace {
 // (the game's in exploration; conversation shots are narrower, and blur more,
 // as a longer lens does, by the square root of the zoom here: the game's
 // closest shots, near 20 degrees, would be all blur otherwise); and the most
-// blur, as a fraction of it too.
+// blur, as a fraction of the display height too.
 constexpr float kDofAperture = 0.009f;
 constexpr float kDofMaxRadius = 0.014f;
 constexpr double kDofReferenceHalfFov = std::numbers::pi / 6.0;
@@ -153,8 +153,9 @@ bool DaoUpscalerImpl::UpdateDepthOfField(float frame_ms,
       enabled && (cvars::dao_depth_of_field_always || shot);
   const float before = dof_strength_;
   if (!wanted && reset_history_) {
-    // Off at once after frames not upscaled (a conversation that ended in a
-    // load: the new area isn't blurred while it fades).
+    // Off at once after a frame not upscaled or another reset of the history
+    // (a conversation that ended in a load: the new area isn't blurred while
+    // it fades).
     dof_strength_ = 0.0f;
   } else {
     const float step =
@@ -166,8 +167,10 @@ bool DaoUpscalerImpl::UpdateDepthOfField(float frame_ms,
   // upscaled (the depth is of another scene, or none), and on a cut: another
   // field of view (a conversation's shots have their own), or the shots
   // starting or ending.
-  const bool fov_cut = !(fov > 0.0f && dof_fov_ > 0.0f &&
-                         std::max(fov / dof_fov_, dof_fov_ / fov) < kDofFovCut);
+  // (Either field of view unknown, or NaN, is a cut too.)
+  const bool fov_known = fov > 0.0f && dof_fov_ > 0.0f;
+  const bool fov_cut =
+      !fov_known || !(std::max(fov / dof_fov_, dof_fov_ / fov) < kDofFovCut);
   if (before <= 0.0f || reset_history_ || shot != dof_shot_ || fov_cut) {
     dof_snap_frames_ = kDofSnapFrames;
   }
@@ -179,6 +182,8 @@ bool DaoUpscalerImpl::UpdateDepthOfField(float frame_ms,
            fov * 180.0f / std::numbers::pi_v<float>);
   }
   if (!enabled) {
+    // Turned off (or failed): its memory back (about 100 MB at 4K).
+    ReleaseDepthOfField();
     return false;
   }
   // Created with the first frame upscaled (after a load), not with the first
@@ -198,9 +203,17 @@ bool DaoUpscalerImpl::UpdateDepthOfField(float frame_ms,
     dof_failed_size_[0] = display_width;
     dof_failed_size_[1] = display_height;
     dof_strength_ = 0.0f;
+    ReleaseDepthOfField();
     return false;
   }
   return dof_strength_ > 0.0f;
+}
+
+void DaoUpscalerImpl::ReleaseDepthOfField() {
+  ReleaseTexture(dof_focus_);
+  ReleaseTexture(dof_half_);
+  ReleaseTexture(dof_blurred_);
+  ReleaseTexture(dof_out_);
 }
 
 void DaoUpscalerImpl::RecordDepthOfField(
@@ -273,12 +286,11 @@ void DaoUpscalerImpl::RecordDepthOfField(
       1.0f - std::exp(-std::clamp(frame_ms, 0.0f, kDofMaxFrameMs) / kDofFocusMs);
   constants.gamma = linear_color ? 0.0f : OutputGamma();
   const float half_radius = constants.max_radius * 0.5f;
-  const uint32_t samples =
-      uint32_t(std::numbers::pi_v<float> * half_radius * half_radius /
-               kDofAreaPerSample) +
-      7;
+  const uint32_t samples = uint32_t(std::numbers::pi_v<float> * half_radius *
+                                    half_radius / kDofAreaPerSample);
+  // Rounded up to a multiple of 8.
   constants.samples =
-      std::clamp(samples / 8 * 8, kDofMinSamples, kDofMaxSamples);
+      std::clamp((samples + 7) / 8 * 8, kDofMinSamples, kDofMaxSamples);
   constants.flags = (dof_snap_frames_ ? kDofFlagSnap : 0) |
                     (cvars::dao_show_depth_of_field ? kDofFlagShow : 0) |
                     (depth_greater_draws_ > depth_less_draws_

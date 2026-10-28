@@ -229,9 +229,6 @@ read with the game closed.)
   stuck while closing, the launcher offers to end it after 15 seconds. If Windows still
   can't let go of it after that, Steam won't start again until the PC is restarted. The old
   `shortcuts.vdf` is kept beside it as `shortcuts.vdf.daorecomp-backup`.
-
-  In the game, F11 switches between fullscreen and a window until the game is closed
-  (the Graphics tab's *Fullscreen* saves it).
 - **Linux:** the program is a Windows executable; run it with Wine or Proton.
   - Steam: *Add a Non-Steam Game* → `DAORecomp.exe`, then in its properties force a
     Proton version (Proton includes vkd3d-proton for Direct3D 12).
@@ -247,8 +244,10 @@ apply at once; when you leave the menu, the game lists the ones that take effect
 the next time it starts. Turning off dynamic shadows and post-processing there (or in the
 launcher) makes the game faster on low-power devices such as the Steam Deck. Motion
 blur is off by default; Low and High cost GPU time while the scene moves. Depth of field
-in conversations is on by default; it costs GPU time in conversations only (about
-0.85 ms a frame at 4K on an RX 9070 XT).
+in conversations is on by default; it costs GPU time in conversations and cutscenes only
+(about 0.85 ms a frame at 4K on an RX 9070 XT, by the GPU timing's "depth of field" mark).
+F11 switches between fullscreen and a window until the game is closed; changing
+*Fullscreen* in the Graphics tab saves the choice, F11 alone doesn't.
 
 **Low latency** (*Configure → Display → Frame rate* in the launcher, or *Options →
 Graphics*, where it applies at once) turns on AMD Radeon Anti-Lag 2 on AMD GPUs with a
