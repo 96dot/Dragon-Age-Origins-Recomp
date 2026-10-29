@@ -97,27 +97,45 @@ Windows may warn about `DAORecomp.exe` because it isn't code-signed (*More info*
 #### Title updates and downloadable content
 
 *Awakening*, *Leliana's Song*, *The Darkspawn Chronicles*, *The Golems of Amgarrak* and
-*Witch Hunt* need the game's Title Update 6 or 7 (the other DLC work without it; 7, the
-last, adds fixes to 6's in its data files). To use them,
-copy the title update's package and the DLC packages from a console (or your backup of
-them) and:
+*Witch Hunt* also need the game's Title Update 6 or 7 (the other DLC work without it).
 
-- give the installer the title update's package: *Title Update 6 or 7 (optional)* in the
-  window, or `--title-update <package>`. It is checked (it must be the one for the
-  English, Italian and Spanish disc, media ID 186A1115), extracted to `title_update/` in the install folder,
-  and the game's code is translated a second time from the updated executable (about as
-  long again). The program then holds both versions and runs the updated one while
-  `title_update/` is there.
-- drop the DLC packages, or the folder holding them, on the launcher window. They are
-  extracted to `userdata/content/454108C0/00000002/`, where the game finds them. A title
-  update dropped there is installed too (7 replaces 6); if the program was built without
-  one, it takes effect after running the installer again on the same folder.
+**1. Find the files.**
 
-Only packages in the read-only format Xbox Live delivers them in (LIVE/PIRS) are read;
-the packages themselves are left as they are. At start, `title_update/default.xexp` is
-checked to be Title Update 6's or 7's; anything else is passed over for the disc's version.
-The launcher's *Downloadable Content* shows which DLC and title update are installed
-(and whether the game can use them), and packages can be dropped there too.
+- **Ultimate Edition:** everything is on disc 2, including Title Update 6. Extract the
+  disc image to a folder; you'll drop that whole folder in step 2.
+- **From a console:** copy the DLC from the hard drive's
+  `Content\0000000000000000\454108C0\00000002\` folder, and the title update from
+  `Content\0000000000000000\454108C0\000B0000\`.
+
+Each DLC is one file with a long name of letters and numbers and no extension, for
+example `35F2AA65A0CDDB099F21E3280F7CE1054B5E08024` (that one is *Leliana's Song*). That
+is normal; don't rename the files or add an extension.
+
+**2. Install them.** Open the launcher, go to *Downloadable Content*, and drag the files,
+or the folder holding them, onto the window. It shows each one as it's installed.
+
+**3. If you added a title update for the first time,** run the installer again on the
+same install folder. The game is rebuilt once for the update, which takes about as long
+as the first build. Going from 6 to 7 later doesn't need this.
+
+*Downloadable Content* then lists what's installed and whether the game can use it.
+
+Details:
+
+- The title update must be the one for the English, Italian and Spanish disc (media ID
+  186A1115); on Ultimate disc 2 that is `ESI\tu00000001_00000000`. The copies for the
+  French and German editions are passed over. 7, the last update, adds fixes to 6's in
+  its data files, and replaces 6 when dropped.
+- The title update can also be given to the installer instead: *Title Update 6 or 7
+  (optional)* in the window, or `--title-update <package>`. It is extracted to
+  `title_update/` in the install folder, and the game's code is translated a second time
+  from the updated executable. The program then holds both versions and runs the
+  updated one while `title_update/` is there; at start, `title_update/default.xexp` is
+  checked to be Title Update 6's or 7's, and anything else is passed over for the disc's
+  version.
+- DLC are extracted to `userdata/content/454108C0/00000002/`, where the game finds them.
+  Only packages in the read-only format Xbox Live delivers them in (LIVE/PIRS) are read;
+  the files you drop are left as they are.
 
 ### Linux (or from the source on Windows)
 
