@@ -10,9 +10,6 @@ x86-64 Windows program, with a Direct3D 12 renderer based on Xenia's. It adds:
   objects), and optional FSR 3.1
   frame generation (a frame between each two, for a display at twice the frame rate;
   only real frames are shown on one that can't keep up)
-- neural rendering on AMD RDNA 4 (experimental): lmxxf's open-source port of DLSS 5's
-  neural rendering, built in, with the network's weights from your download of
-  lmxxf's package (they're NVIDIA's, and not included)
 - depth of field in conversations (and, it seems, cutscenes), from the scene's depth,
   with temporal upscaling: the people nearest the camera sharp, the scene behind them
   blurred, as a film camera's lens does
@@ -215,13 +212,10 @@ Everything is pinned to exact versions and checked (`installer/deps.py`):
 
 The install folder gets the game files (`game/`), the program, `userdata/` (settings,
 saves, save backups, installed DLC, logs, the shader cache, and the Options menu it
-generates), `mods/`, and with the title update, `title_update/`. On a PC with an AMD
-RDNA 4 GPU (Radeon RX 9000 series) and AMD's driver, it also gets `neural/`: neural
-rendering's GPU kernels, compiled for that GPU during the install by the driver's own
-compiler (`amd_comgr_3.dll`; a minute or two the first time, and again after a driver
-update), and the shaders it compiles, and `DLSS5-AMD/`: its settings and logs. An install
-on a PC without such a GPU removes an earlier install's kernels and shaders (your own
-files there stay; if AMD's driver can't say which GPU it is, they stay too).
+generates), `mods/`, and with the title update, `title_update/`. Installing over an
+earlier version removes the neural rendering files it installed (`LmxxfNrRuntime.dll`,
+the kernels and shaders in `neural/`, `DLSS5-AMD/default-config.txt` and its logs, and
+lmxxf's license files); files you added there stay.
 
 When you save over a save, the version it replaces is kept in
 `userdata/save_backups/`: one per save, the one before its latest overwrite (a save
@@ -302,42 +296,6 @@ where it can't run (no RTX GPU, an upscaling ratio beyond what DLSS's modes cove
 3x), FSR upscales instead. The game only loads Streamline's `sl.interposer.dll` if it's
 exactly the installer's, and downloads nothing while it runs; NVIDIA's driver may use a
 newer DLSS it already has.
-
-**Neural rendering (experimental, AMD RDNA 4 only):** the 3D scenes go through the
-neural rendering network of NVIDIA's DLSS 5 before temporal upscaling, run on AMD's
-GPUs by [lmxxf's port](https://github.com/lmxxf/dlss5-on-amd-9070xt-porting) (MIT),
-built from its source into `LmxxfNrRuntime.dll`. The network's weights are NVIDIA's and
-don't come with the game: download lmxxf's release package (linked from its README), then
-in the launcher's *Configure → Graphics* turn on *Neural rendering* and choose the
-package's folder with *Browse* (its folder with `block0-ffn.f16` is searched for, four
-levels down at most; if it isn't found, choose that folder itself). The option
-is there when the install has its kernels (installed on a PC with an RX 9000 series GPU:
-install again after changing to one), and needs temporal upscaling on. It's expensive: lmxxf
-measures about 7 ms of GPU time a frame for its 900-line network and 9.5 ms for 1080
-lines on an RX 9070 XT. It works with HDR output too (the network gets the scene in linear
-light, as DLSS 5 takes HDR, and the highlights above paper white keep their brightness),
-takes effect when the game starts, and loading the network holds the first frames (the logos)
-for a second or two.
-*Neural rendering strength* (also in *Options → Graphics*, where it applies at once)
-sets how much of the network's change of detail and colour is kept, from none (0, which skips
-the network: no GPU time for it, though it stays loaded; so does anything under 0.05) to all (1).
-The options lmxxf's packages have are there too (in both; they take effect when the game
-starts): *quality* is the network's size, which the 3D scenes are fitted to (Auto picks the
-smallest they fit: 720 lines at `resolution_scale = 1` and 1080 above; 900 and 720 are
-faster), *passes* runs the
-network two or three times a frame for a stronger look (each pass costs as much as the first;
-the third is predicted from the first two), *protect skin* keeps skin as the first pass made
-it, and *style* is one of NVIDIA's three (0 is NVIDIA's default, 1 lmxxf's). The installer
-puts lmxxf's settings template for this runtime in `DLSS5-AMD/default-config.txt`; these
-settings override it, and the runtime keeps its own logs in `DLSS5-AMD/logs`. Its problems
-are logged to `userdata/xenia.log`, and then it's off for the session. In the game, F6
-switches it off and back on at once, to compare, when it was on as the game started (the
-keyboard only, while the game's window is in front).
-*Ease off neural rendering to hold the frame rate* (on by default, in the launcher and in
-*Options → Graphics*, where it applies at once) fades the network out while the GPU can't hold
-the frame rate with it, and back in when the GPU has room for it again; `userdata/xenia.log`
-says when ("Frame rate guard"). It measures the GPU's time a frame, so it eases off only when
-the GPU is what holds the frames back, and does nothing with the frame rate unlimited.
 
 [OptiScaler](https://github.com/optiscaler/OptiScaler) can take over the temporal upscaling
 (as can unofficial forks of it, such as AMD-NR). It isn't included: copy its files next to
@@ -450,11 +408,6 @@ are tested, and the traps found so far. The build details are below.
   once, or its `--prepare-only` step): among them the FidelityFX SDK and
   `tools/XeSS-SDK` (`installer/toolchain.py`'s `ensure_xess`) and `tools/Streamline-SDK`
   (`ensure_streamline`), whose DLLs are copied next to the exe.
-- `thirdparty/lmxxf-nr` is the part of lmxxf's neural rendering source the game builds
-  (`LmxxfNrRuntime.dll`, from `DAORecomp/neural/lmxxf_runtime.cpp`) and the installer
-  compiles (`installer/neural.py`, its HIP kernels by `thirdparty/lmxxf-nr/hip/build-modules.ps1`'s recipe):
-  copied from a checkout by `scripts/vendor_lmxxf.py`, which records the commit in
-  `SOURCE`. Never the network's weights.
 - `scripts/build_setup_exe.py` builds `dist/DAORecomp.exe`, what players download: the
   launcher alone (`-DDAO_LAUNCHER_ONLY=ON`) with the installer appended to it, which it
   unpacks to run. The installer is `scripts/build_installer_engine.py`'s folder:
@@ -553,14 +506,11 @@ MIT (see `LICENSE`), except `xenia/`, which is Xenia's code under its BSD licens
 (`xenia/LICENSE`). The downloaded dependencies keep their own licenses; the FidelityFX
 license is copied next to its DLLs, and Intel's XeSS license and third-party notices
 next to `libxess.dll` (`intel_xess_license.txt`, `intel_xess_third_party_programs.txt`).
-`thirdparty/lmxxf-nr` is lmxxf's code under the MIT license, with AMD's HIP API headers
-under theirs (MIT); both licenses are installed next to `LmxxfNrRuntime.dll`
-(`lmxxf_nr_license.txt`, `lmxxf_nr_hip_api_license.txt`). `thirdparty/antilag2` is
+`thirdparty/antilag2` is
 AMD's Anti-Lag 2 SDK header, under its MIT license (installed as
 `amd_antilag2_license.txt`). NVIDIA's Streamline (MIT) and its Reflex and DLSS DLLs
 (under NVIDIA's license terms) are downloaded by the installer, and their licenses
 installed next to them (`nvidia_streamline_license.txt`, `nvidia_reflex_license.txt`,
-`nvidia_dlss_license.txt`). The neural rendering network's
-weights are NVIDIA's; none of them are in this repository or the releases.
+`nvidia_dlss_license.txt`).
 *Dragon Age* is a trademark of Electronic Arts; this project is not affiliated with EA,
 BioWare or Microsoft.

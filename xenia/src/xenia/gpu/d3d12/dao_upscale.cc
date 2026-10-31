@@ -5,12 +5,10 @@
 
 #include <algorithm>
 #include <bit>
-#include <cmath>
 
 #include "xenia/base/logging.h"
 #include "xenia/dao_live_settings.h"
 #include "xenia/gpu/d3d12/d3d12_command_processor.h"
-#include "xenia/gpu/d3d12/dao_frame_guard.h"
 #include "xenia/gpu/d3d12/dao_gpu_timing.h"
 #include "xenia/gpu/graphics_system.h"
 #include "xenia/gpu/gpu_flags.h"
@@ -876,28 +874,6 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
   render_size_[0] = render_width;
   render_size_[1] = render_height;
 
-  // Neural rendering made ready on the first frame (the logos), with the
-  // linear scene's texture it will take: loading it and building its network
-  // stalls the GPU thread a second or two (1.7 s on an RX 9070 XT), which the
-  // first 3D scene would show. The logos and the scenes have the same render
-  // size (measured: the first 3D frame then prepares in 0.3 ms); if they
-  // didn't, the runtime would build it again on the first 3D frame (Run logs
-  // it). Only with temporal upscaling, which it runs before, and also at
-  // strength 0, for the slider to apply at once.
-  if (!neural_prepared_ && cvars::dao_neural_rendering &&
-      GetTemporalUpscaler() != TemporalUpscaler::kOff) {
-    neural_prepared_ = true;
-    if (EnsureHdrTexture()) {
-      Transition(hdr_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-      cp_.SubmitBarriers();
-      Neural().Prepare(hdr_.resource.Get(), render_width, render_height);
-    } else {
-      XELOGW(
-          "Neural rendering: no texture to prepare it with; it loads on the "
-          "first 3D scene instead");
-    }
-  }
-
   const char* reason = nullptr;
   if (!jitter_active_) {
     if (true_hdr_ && !size_changed && hudless_captured_) {
@@ -937,64 +913,9 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
   // Linear color: true HDR's, or the SDR image linearized for a backend
   // taking it so (upscaled linear, then encoded again in the composite).
   const bool linear_color = true_hdr_ || backend_->LinearSdrColor();
-  // Neural rendering of the scene before the UI, in linear light (with true
-  // HDR, above paper white too, as DLSS 5 takes HDR): its output is what's
-  // upscaled. The composite finds the UI by comparing the game's image with
-  // the one before the UI as the game drew it, not the network's.
-  const bool neural_on = cvars::dao_neural_rendering &&
-                         !(neural_ && neural_->failed());
-  // Read once a frame (the Graphics tab sets it at any time); NaN as 0.
-  // Scaled by the frame rate guard, which fades it out while the GPU can't
-  // hold the frame rate with the network (in steps under
-  // kNeuralStrengthJump: the upscaler's history stays).
-  const double live_strength = dao_live::Load(dao_live::values.neural_strength);
-  const bool neural_wanted = neural_on && live_strength >= kNeuralStrengthMin &&
-                             !dao_live::Load(dao_live::values.neural_paused);
-  const double guarded_strength =
-      std::min(live_strength, 1.0) *
-      DaoFrameGuard::Get().NeuralScale(neural_wanted);
-  const float neural_strength =
-      neural_wanted && guarded_strength >= kNeuralStrengthMin
-          ? float(guarded_strength)
-          : 0.0f;
-  // Paused (F6), at strength 0 or eased off by the guard (the network's output
-  // unused: its GPU time saved): the session stays, to resume at once (its
-  // history restarting).
-  const bool run_neural = neural_strength > 0.0f;
-  if (neural_on && !run_neural) {
-    neural_paused_ = true;
-  }
-  if ((linear_color || run_neural) && !EnsureHdrScene()) {
+  if (linear_color && !EnsureHdrScene()) {
     return NotUpscaled("no linear scene", frontbuffer, frontbuffer_srv,
                        srv_out, hdr_out);
-  }
-  ID3D12Resource* neural_color = nullptr;
-  if (run_neural) {
-    Transition(hdr_, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-    cp_.SubmitBarriers();
-    neural_color = Neural().Run(hdr_.resource.Get(), render_width,
-                                render_height, neural_strength,
-                                reset_history_ || neural_paused_);
-    neural_paused_ = false;
-    if (neural_color && dao_timing::GpuTiming::Enabled()) {
-      dao_timing::GpuTiming::Get().Mark(cp_, "neural rendering");
-    }
-    // For a backend taking SDR, encoded as the game's output.
-    if (neural_color && !linear_color) {
-      D3D12_SHADER_RESOURCE_VIEW_DESC neural_srv = {};
-      neural_srv.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
-      neural_srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-      neural_srv.Shader4ComponentMapping =
-          D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-      neural_srv.Texture2D.MipLevels = 1;
-      neural_color =
-          EnsureTexture(neural_sdr_, color_.format, render_width,
-                        render_height, "neural rendering SDR") &&
-                  ConvertImage(neural_color, neural_srv, neural_sdr_,
-                               kCompositeGamma)
-              ? neural_sdr_.resource.Get()
-              : nullptr;
-    }
   }
   // Motion vectors, then the upscaler, recorded into the command list when
   // it's executed.
@@ -1013,9 +934,7 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
   Transition(upscaled_, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
   cp_.SubmitBarriers();
   UpscalerBackend::Frame frame = {};
-  if (neural_color) {
-    frame.color = neural_color;
-  } else if (linear_color) {
+  if (linear_color) {
     frame.color = hdr_.resource.Get();
   } else {
     frame.color = color_.resource.Get();
@@ -1032,20 +951,7 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
   frame.sharpness = float(std::clamp(
       dao_live::Load(dao_live::values.temporal_sharpness), 0.0, 1.0));
   frame.frame_ms = std::clamp(frame_ms, 1.0f, 100.0f);
-  // The history isn't of the same image when the network's output comes or
-  // goes, or its strength jumps (paused, resumed, failed, or the slider set
-  // far from where it was): not for the slider's steps of 0.1, which change
-  // the image little.
-  // (A frame it waits out, its pipelines not created yet, isn't a change: the
-  // next one has its output again.)
-  const bool neural_waited =
-      run_neural && !neural_color && !(neural_ && neural_->failed());
-  const float neural_shown = neural_color    ? neural_strength
-                             : neural_waited ? neural_shown_
-                                             : 0.0f;
-  frame.reset = reset_history_ ||
-                std::abs(neural_shown - neural_shown_) > kNeuralStrengthJump;
-  neural_shown_ = neural_shown;
+  frame.reset = reset_history_;
   backend_->RecordDispatch(frame);
   InvalidateCommandProcessorState();
   if (dao_timing::GpuTiming::Enabled()) {

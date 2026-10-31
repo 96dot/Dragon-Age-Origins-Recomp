@@ -75,8 +75,6 @@ namespace dao::gpu
 
     void FrameSwapped()
     {
-        // For the GPU's frame rate guard (xenia's dao_frame_guard).
-        xe::dao_live::values.frame_rate.store(FrameRate(), std::memory_order_relaxed);
         // (A frame not kicked by the next swap is paced then.)
         if (t_framePending)
             PaceFrames();

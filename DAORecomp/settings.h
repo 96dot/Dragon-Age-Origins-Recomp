@@ -83,25 +83,6 @@ namespace dao
         // frames on the display (only real ones while it can't show that many), half a
         // frame more latency.
         bool frameGeneration = false;
-        // Neural rendering (lmxxf's HIP port of DLSS 5's neural rendering): the 3D
-        // scenes through NVIDIA's network before temporal upscaling. AMD RDNA 4 only,
-        // in SDR or HDR. The network's weights don't come with the game: neuralWeights is
-        // the folder with them (block0-ffn.f16) in lmxxf's package, as UTF-8.
-        bool neuralRendering = false;
-        std::string neuralWeights;
-        float neuralStrength = 1.0f; // 0..1
-        // The options of lmxxf's packages: the network's size (kNeuralNetworks: 0 =
-        // by the 3D scenes' size, else its height, smaller is faster), its passes a
-        // frame (1 to 3, a stronger style, each as costly as the first), with more
-        // than one whether skin keeps the first pass's look, and its style (0 to 2).
-        int neuralNetwork = 0;
-        int neuralPasses = 1;
-        bool neuralSkinProtect = false;
-        int neuralStyle = 1;
-        // Holds the frame rate: the network's strength fades out while the GPU can't
-        // hold the frame rate with it, and back in when there's room for it again (not
-        // with the frame rate unlimited).
-        bool neuralFrameRateGuard = true;
         // Waits for the display's refresh when presenting: no tearing, and no more
         // frames shown than the display refreshes.
         bool vsync = true;
@@ -170,10 +151,6 @@ namespace dao
     // The last temporal upscaler (Settings::temporalUpscaler); the in-game Graphics tab and the
     // launcher list one name per upscaler.
     constexpr int kMaxTemporalUpscaler = int(TemporalUpscaler::Dlss);
-    // Neural rendering's network sizes (Settings::neuralNetwork), passes and styles.
-    constexpr int kNeuralNetworks[] = { 0, 1080, 900, 720 };
-    constexpr int kMaxNeuralPasses = 3;
-    constexpr int kMaxNeuralStyle = 2;
     constexpr float kHdrMinNits = 80.0f;
     constexpr float kHdrMaxPaperWhite = 1000.0f;
     constexpr float kHdrMaxPeak = 10000.0f;
@@ -211,7 +188,4 @@ namespace dao
     // the [xenia] cvar overrides. Must run before the graphics system is created.
     const Settings& LoadSettings(const std::filesystem::path& userRoot);
     const Settings& GetSettings();
-    // Whether neural rendering runs: on, with its weights' folder, and before
-    // temporal upscaling (without it, it isn't loaded).
-    bool NeuralRenderingOn(const Settings& s);
 }

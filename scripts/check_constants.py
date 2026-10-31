@@ -3,8 +3,8 @@ link, kept in installer/deps.py for the installer, and the appended installer's
 magic (installer/pipeline.py) and Streamline's sl.interposer.dll hash, have the same
 values where the program keeps them; that the file and folder names both sides use are
 spelt the same, and the build copies the Streamline DLLs the installer installs; and that the
-in-game Graphics tab offers the fields of view, neural rendering options and motion blur
-and low latency levels settings.h does.
+in-game Graphics tab offers the fields of view, motion blur and low latency levels and
+temporal upscalers settings.h does.
 
     python -I scripts/check_constants.py
 """
@@ -57,22 +57,6 @@ NAMES = [
     ("installer/util.py", "DAORecomp-build"),
     # The Streamline DLL the game loads, which the installer puts next to it.
     ("xenia/src/xenia/ui/d3d12/dao_streamline.cc", deps.STREAMLINE_DLLS[0]),
-    # Neural rendering's: the installer's layout, which the launcher and the game check.
-    ("xenia/src/xenia/gpu/d3d12/dao_upscale_neural.cc", python_string("installer/neural.py", "FOLDER")),
-    ("xenia/src/xenia/gpu/d3d12/dao_upscale_neural.cc", python_string("installer/neural.py", "CONFIG_FOLDER")),
-    ("xenia/src/xenia/gpu/d3d12/dao_upscale_neural.cc", "default-config.txt"),
-    ("installer/neural.py", "default-config.txt"),
-    ("DAORecomp/launcher/configure_view.cpp", python_string("installer/neural.py", "FOLDER")),
-    ("DAORecomp/ui/graphics_menu.cpp", python_string("installer/neural.py", "FOLDER")),
-    ("installer/neural.py", "SHA256SUMS"),
-    ("DAORecomp/launcher/configure_view.cpp", "SHA256SUMS"),
-    ("DAORecomp/ui/graphics_menu.cpp", "SHA256SUMS"),
-    ("installer/pipeline.py", "LmxxfNrRuntime.dll"),
-    ("xenia/src/xenia/gpu/d3d12/dao_upscale_neural.cc", "LmxxfNrRuntime.dll"),
-    ("DAORecomp/launcher/configure_view.cpp", "LmxxfNrRuntime.dll"),
-    ("DAORecomp/ui/graphics_menu.cpp", "LmxxfNrRuntime.dll"),
-    ("DAORecomp/launcher/launcher_internal.h", "block0-ffn.f16"),
-    ("xenia/src/xenia/gpu/d3d12/dao_upscale_neural.cc", "block0-ffn.f16"),
 ]
 
 
@@ -92,26 +76,19 @@ def fov_lists():
 
 
 def option_lists():
-    """[(the option, settings.h's values, graphics_tab.as's)] for neural rendering's
-    network sizes (kNeuralNetworks), passes (1 to kMaxNeuralPasses) and styles (0 to
-    kMaxNeuralStyle), the motion blur and low latency levels (0 to kMaxMotionBlur,
-    kMaxLowLatency) and the temporal upscalers (0 to kMaxTemporalUpscaler)."""
+    """[(the option, settings.h's values, graphics_tab.as's)] for the motion blur and low
+    latency levels (0 to kMaxMotionBlur, kMaxLowLatency) and the temporal upscalers (0 to
+    kMaxTemporalUpscaler)."""
     header, script = read("DAORecomp/settings.h"), read("DAORecomp/ui/graphics_tab.as")
-    networks = re.search(r"kNeuralNetworks\[\] = \{([^}]*)\}", header)
-    passes = re.search(r"kMaxNeuralPasses = (\d+);", header)
-    styles = re.search(r"kMaxNeuralStyle = (\d+);", header)
     blur = re.search(r"kMaxMotionBlur = (\d+);", header)
     latency = re.search(r"kMaxLowLatency = (\d+);", header)
     upscalers = re.search(r"enum class TemporalUpscaler \{([^}]*)\}", header)
-    if not (networks and passes and styles and blur and latency and upscalers
+    if not (blur and latency and upscalers
             and "kMaxTemporalUpscaler = int(TemporalUpscaler::"
                 + upscalers.group(1).split(",")[-1].strip() + ");" in header):
         sys.exit("settings.h: the options' lists aren't where this script reads them")
     out = []
-    for key, values in [("NeuralNetwork", [int(n) for n in re.findall(r"\d+", networks.group(1))]),
-                        ("NeuralPasses", list(range(1, int(passes.group(1)) + 1))),
-                        ("NeuralStyle", list(range(0, int(styles.group(1)) + 1))),
-                        ("MotionBlur", list(range(0, int(blur.group(1)) + 1))),
+    for key, values in [("MotionBlur", list(range(0, int(blur.group(1)) + 1))),
                         ("LowLatency", list(range(0, int(latency.group(1)) + 1))),
                         ("TemporalUpscaler", list(range(len(upscalers.group(1).split(",")))))]:
         row = re.search(rf'key: "{key}"[^}}]*?values: \[([^\]]*)\]', script, re.S)

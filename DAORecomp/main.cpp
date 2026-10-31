@@ -429,15 +429,14 @@ int main(int argc, char** argv)
     if (frameHistory)
         dao::gpu::StartFrameHistory(userRoot);
 
-    // Hotkeys (game window focused): F6 pauses neural rendering and resumes it, F7
-    // opens the cheats menu and closes it, F8 turns depth of field off and on (debug:
-    // not saved), F9 switches between the texture packs' textures and the game's own
-    // (to compare; not saved), F10 switches between the game's own 30 fps and the
-    // frame rate set, F11 between fullscreen and a window (not saved), F12 saves the
-    // frame history (DAO_FRAME_HISTORY).
+    // Hotkeys (game window focused): F7 opens the cheats menu and closes it, F8 turns
+    // depth of field off and on (debug: not saved), F9 switches between the texture
+    // packs' textures and the game's own (to compare; not saved), F10 switches between
+    // the game's own 30 fps and the frame rate set, F11 between fullscreen and a window
+    // (not saved), F12 saves the frame history (DAO_FRAME_HISTORY).
     // Polled at 20 Hz: each poll is a few window system calls (round trips to wineserver on Proton), and a key press is longer.
-    std::thread([frameHistory, neural = dao::NeuralRenderingOn(dao::GetSettings())] {
-        constexpr int keys[] = { VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12 };
+    std::thread([frameHistory] {
+        constexpr int keys[] = { VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12 };
         bool wasDown[std::size(keys)] = {};
         for (;;)
         {
@@ -450,14 +449,7 @@ int main(int argc, char** argv)
                 const bool down = focused && (GetAsyncKeyState(keys[i]) & 0x8000);
                 if (down && !wasDown[i])
                 {
-                    if (keys[i] == VK_F6 && neural)
-                    {
-                        auto& paused = xe::dao_live::values.neural_paused;
-                        const bool pause = !paused.load(std::memory_order_relaxed);
-                        paused.store(pause, std::memory_order_relaxed);
-                        LOGI("Neural rendering: {} (F6)", pause ? "paused" : "resumed");
-                    }
-                    else if (keys[i] == VK_F7)
+                    if (keys[i] == VK_F7)
                         dao::ui::ToggleCheats();
                     else if (keys[i] == VK_F8)
                     {

@@ -12,7 +12,7 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import deps, neural, shortcuts, sources, toolchain
+from . import deps, shortcuts, sources, toolchain
 from .util import (BUNDLE, EXE, BUNDLED, GIT, IS_WINDOWS, REPO, SCRIPTS, SOURCE, VERSION, InstallError, check_host,
                    clean_env, human_size, run)
 
@@ -472,11 +472,76 @@ def _replace_exe(reporter, built, exe):
         raise
 
 
+def _remove_neural_rendering(reporter, dest):
+    """Removes what earlier installs put in dest for neural rendering, since removed:
+    its runtime, kernels (HIP/<gpu>/*.hsaco, HIP/SHA256SUMS and HIP/SOURCE), shaders,
+    default settings, logs and licenses. Only with an earlier install's marks (the runtime,
+    or the kernels' list), only the names it installed (the player's own files, such as
+    DLSS5-AMD/custom-config.txt, stay), and nothing through a link. A file that can't be
+    removed (an older version of the game running) stays: the game no longer loads it."""
+    dest = Path(dest)
+    root = dest.resolve()
+    neural = dest / "neural"
+
+    def marked():
+        return (dest / "LmxxfNrRuntime.dll").is_file() or (neural / "HIP" / "SHA256SUMS").is_file()
+
+    if not marked():
+        return
+
+    def ours(path):
+        # Not a link (is_junction: Python 3.12), and within dest.
+        return (not path.is_symlink() and not getattr(path, "is_junction", lambda: False)()
+                and path.resolve().is_relative_to(root))
+
+    def remove_file(path):
+        try:
+            # (dest itself may be a link: the player's choice.)
+            if path.is_file() and ours(path) and (path.parent == dest or ours(path.parent)):
+                path.unlink()
+        except OSError:
+            pass
+
+    def remove_folder_if_empty(path):
+        try:
+            if path.is_dir() and ours(path):
+                path.rmdir()
+        except OSError:
+            pass
+
+    # (A folder that can't be listed, as on a share that dropped, is left as it is.)
+    try:
+        hip = neural / "HIP"
+        if hip.is_dir() and ours(hip):
+            for target in hip.iterdir():
+                if target.is_dir() and ours(target):
+                    for kernel in target.glob("*.hsaco"):
+                        remove_file(kernel)
+                    remove_folder_if_empty(target)
+        shaders = neural / "shaders"
+        if shaders.is_dir() and ours(shaders):
+            for shader in shaders.glob("*.hlsl"):
+                remove_file(shader)
+        logs = dest / "DLSS5-AMD" / "logs"
+        if logs.is_dir() and ours(logs):
+            for log in logs.iterdir():
+                remove_file(log)
+        for name in ("neural/HIP/SOURCE", "DLSS5-AMD/default-config.txt", "lmxxf_nr_license.txt",
+                     "lmxxf_nr_hip_api_license.txt", "neural/HIP/SHA256SUMS", "LmxxfNrRuntime.dll"):
+            remove_file(dest / name)  # (The marks last: an interrupted removal is done again.)
+        for folder in (hip, shaders, neural, logs, dest / "DLSS5-AMD"):
+            remove_folder_if_empty(folder)
+    except OSError:
+        pass
+    if not marked():
+        reporter.log("Removed an earlier install's neural rendering")
+
+
 def install(reporter, built, dest, with_shortcuts=False):
     dest.mkdir(parents=True, exist_ok=True)
     # The DLLs first: while the game runs they can't be replaced, and the exe is left as it was.
     for name in ("amd_fidelityfx_loader_dx12.dll", "amd_fidelityfx_upscaler_dx12.dll",
-                 "amd_fidelityfx_framegeneration_dx12.dll", "libxess.dll", "LmxxfNrRuntime.dll",
+                 "amd_fidelityfx_framegeneration_dx12.dll", "libxess.dll",
                  *deps.STREAMLINE_DLLS):
         _copy_when_free(reporter, built / name, dest / name)
     _replace_exe(reporter, built / "DAORecomp.exe", dest / "DAORecomp.exe")
@@ -493,7 +558,7 @@ def install(reporter, built, dest, with_shortcuts=False):
     shutil.copy2(sl_bin / "nvngx_dlss.license.txt", dest / "nvidia_dlss_license.txt")
     # The Anti-Lag 2 SDK's header is built into the exe: its license (MIT) goes with it.
     shutil.copy2(REPO / "thirdparty" / "antilag2" / "LICENSE.txt", dest / "amd_antilag2_license.txt")
-    neural.install(reporter, BUILD / "neural", dest)
+    _remove_neural_rendering(reporter, dest)
     for folder in ("userdata", "mods"):
         (dest / folder).mkdir(exist_ok=True)
     shutil.copy2(REPO / "mods" / "README.txt", dest / "mods" / "README.txt")

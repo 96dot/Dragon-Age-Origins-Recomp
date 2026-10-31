@@ -27,7 +27,7 @@ void Initialize(const DXGI_ADAPTER_DESC& adapter);
 void SetDevice(IDXGIFactory2* factory, ID3D12Device* device);
 // Creates the direct queue, through Streamline's device proxy when it's on;
 // *queue is the native queue all the same (its proxy's GetDevice would give
-// the proxy device, which others such as neural rendering don't know).
+// the proxy device, not the one the renderer's resources were created on).
 HRESULT CreateDirectQueue(ID3D12Device* device,
                           const D3D12_COMMAND_QUEUE_DESC& desc,
                           ID3D12CommandQueue** queue);

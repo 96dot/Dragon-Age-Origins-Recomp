@@ -196,14 +196,12 @@ namespace dao::launcher
         int shots = 0;
     };
 
-    // The paths chosen with Browse: the Install view's, and neural rendering's
-    // weights (Configure).
+    // The paths chosen with Browse: the Install view's.
     enum class PathField
     {
         DiscImage,
         Dlc,
         Folder,
-        NeuralWeights,
     };
 
     // What file and folder dialogs chose, from SDL's dialog thread; shared with
@@ -333,19 +331,6 @@ namespace dao::launcher
         float padScroll = 0.0f, padScrollCarry = 0.0f;
         // Configure: give the selected tab the focus (switched with LB or RB).
         bool focusConfigureTab = false;
-        // Neural rendering: whether the install has its runtime and kernels (checked
-        // once), and whether settings.neuralWeights has the weights, as of checkedWeights
-        // (weightsCheck: the check of a later path, on its own thread).
-        std::optional<bool> neuralInstalled;
-        std::string checkedWeights;
-        bool weightsFound = false;
-        struct WeightsCheck
-        {
-            std::string path;
-            bool found = false;
-            std::atomic<bool> done = false;
-        };
-        std::shared_ptr<WeightsCheck> weightsCheck;
         // Whether Escape and the gamepad's B mean Back this frame: not closing a popup,
         // ending an edit or leaving a child window navigated on its own (not
         // NavFlattened, as the views' contents and their tables are).
@@ -462,11 +447,6 @@ namespace dao::launcher
 
     // configure_view.cpp: Configure, its tabs.
     void ConfigureView(State& st, const Layout& layout);
-    // The first of neural rendering's weights, which marks their folder.
-    constexpr const char* kNeuralWeightsFile = "block0-ffn.f16";
-    // The folder with them in `folder` or below (a package's); also used by
-    // install_view.cpp's folder dialog (on its thread) when one is chosen.
-    std::optional<fs::path> FindNeuralWeights(const fs::path& folder);
 
     // mods_view.cpp: Mods, and adding, converting and reading mods in the background.
     bool AddingMods(const State& st);

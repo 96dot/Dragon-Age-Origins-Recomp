@@ -140,9 +140,7 @@ dao_xenia_defaults(xenia-gpu-d3d12)
 set(DAO_FFX_SDK ${CMAKE_SOURCE_DIR}/tools/FidelityFX-SDK/Kits/FidelityFX)
 target_include_directories(xenia-gpu-d3d12 SYSTEM PRIVATE ${DAO_FFX_SDK}/api/include ${DAO_FFX_SDK}/upscalers/include
     ${DAO_FFX_SDK}/framegeneration/include ${CMAKE_SOURCE_DIR}/tools/XeSS-SDK/inc
-    ${CMAKE_SOURCE_DIR}/tools/Streamline-SDK/include
-    # Neural rendering's runtime API (dao_upscale_neural.cc).
-    ${CMAKE_SOURCE_DIR}/thirdparty/lmxxf-nr/include)
+    ${CMAKE_SOURCE_DIR}/tools/Streamline-SDK/include)
 
 # Everything the runtime links.
 add_library(dao-xenia INTERFACE)

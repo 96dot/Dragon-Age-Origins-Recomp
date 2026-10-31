@@ -36,9 +36,8 @@ has no game code or data, and must never get any.
 3. **Third-party binaries come from the installer, not git.** The installer downloads
    pinned versions (SHA-256 checked, `installer/deps.py`): LLVM, FidelityFX, XeSS,
    Streamline and NVIDIA's DLLs. Never commit or bundle them. The only third-party code
-   in git is source under `thirdparty/` (lmxxf's neural rendering, the Anti-Lag 2
-   header), each with its license and where it came from. Never add NVIDIA's DLSS 5
-   neural-rendering weights in any form: players point the launcher at their own copy.
+   in git is source under `thirdparty/` (the Anti-Lag 2 header), with its license and
+   where it came from.
 4. **Untested features are marked experimental**, in the launcher, the game's menus
    and the README (as DLSS and Reflex are, built without an NVIDIA GPU to test on).
 
@@ -73,8 +72,7 @@ has no game code or data, and must never get any.
 | `DAORecomp/mods/` | Mods, and the PC-to-360 mod converter (`convert/`). The `mods/` folder at the top is the player's, not code. |
 | `DAORecomp/patches/` | Optional code patches the launcher lists. |
 | `DAORecomp/settings.*` | `userdata/config.toml`: every setting, read and written in one place. |
-| `xenia/src/xenia/` | Xenia's renderer. Our additions are the `dao_*` files: upscaling, motion vectors, HDR, frame generation, neural rendering and the frame rate guard (`gpu/d3d12/`), low latency and NVIDIA Streamline (`ui/d3d12/`), frame pacing (`ui/dao_frame_pacer.cc`), and their shaders. Changes inside Xenia's own files are kept small and marked `DAO`. |
-| `thirdparty/` | lmxxf's neural rendering source and the Anti-Lag 2 header (in git); SDL (fetched by the installer). |
+| `thirdparty/` | The Anti-Lag 2 header (in git); SDL (fetched by the installer). |
 | `installer/` | The installer (Python): checks the ISO, downloads the tools, translates the game and builds it. |
 | `config/` | XenonRecomp's description of the game's code: functions, jump tables (`*_switch_tables.toml`), exception records. |
 | `scripts/` | Analysis, translation and build tools; `scripts/test/` is the test kit. |
@@ -215,8 +213,8 @@ What to run depends on the change:
 - **Low latency:** AMD Anti-Lag 2 cost frames with our frame generation's pacing, so low
   latency is forced off while FSR Frame Generation is on (the setting is kept). With
   NVIDIA Streamline on, the direct queue is created through its proxy, but the game
-  keeps the native queue: the proxy's `GetDevice` returns Streamline's device, which
-  broke neural rendering.
+  keeps the native queue: the proxy's `GetDevice` returns Streamline's device, not the
+  one the renderer's resources were created on.
 - **Captures:** text like `…1.50X SOURCE: LOCAL` along the top edge is the AMD driver's
   FSR 4 overlay, not the game's. The Fade's heavy blur is the level's own effect.
 - **Saves in tests:** runs that load make autosaves, and some saves load into a

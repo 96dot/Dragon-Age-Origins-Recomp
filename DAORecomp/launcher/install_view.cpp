@@ -20,7 +20,6 @@ namespace dao::launcher
         {
             return field == PathField::DiscImage ? st.installIso
                 : field == PathField::Dlc ? st.installDlc
-                : field == PathField::NeuralWeights ? st.settings.neuralWeights
                 : st.installDest;
         }
 
@@ -32,10 +31,8 @@ namespace dao::launcher
         };
 
         // Opens Windows' file or folder dialog for a field. Its choice comes on SDL's
-        // dialog thread, into st.dialogs, which the next frame takes it from. For the
-        // weights, it's their folder in lmxxf's package (or the package itself), found
-        // on that thread: a large folder takes a while (Browse stays off meanwhile).
-        // The DLC's field takes a file or, with `folder`, a folder.
+        // dialog thread, into st.dialogs, which the next frame takes it from. The DLC's
+        // field takes a file or, with `folder`, a folder.
         void Browse(State& st, PathField field, bool folder = false)
         {
             static const SDL_DialogFileFilter kDiscImage[] = { { "Xbox 360 disc image", "iso" },
@@ -51,18 +48,13 @@ namespace dao::launcher
             const SDL_DialogFileCallback chosen = [](void* userdata, const char* const* files, int) {
                 const std::unique_ptr<DialogRequest> request(static_cast<DialogRequest*>(userdata));
                 std::string path = files && files[0] ? files[0] : "";
-                if (!path.empty() && request->field == PathField::NeuralWeights)
-                {
-                    if (const auto weights = FindNeuralWeights(FromUtf8(path)))
-                        path = Utf8(*weights);
-                }
                 std::lock_guard lock(request->results->mutex);
                 if (!path.empty())
                     request->results->chosen.emplace_back(request->field, std::move(path));
                 request->results->open--;
             };
             const char* start = request->start.empty() ? nullptr : request->start.c_str();
-            if (field == PathField::Folder || field == PathField::NeuralWeights || folder)
+            if (field == PathField::Folder || folder)
                 SDL_ShowOpenFolderDialog(chosen, request, st.window, start, false);
             else if (field == PathField::DiscImage)
                 SDL_ShowOpenFileDialog(chosen, request, st.window, kDiscImage, 2, start, false);
