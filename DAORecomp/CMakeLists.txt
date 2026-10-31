@@ -41,6 +41,7 @@ if (DAO_LAUNCHER_ONLY)
         ${CMAKE_CURRENT_SOURCE_DIR}/mods/convert/*.cpp)
     list(APPEND DAO_LAUNCHER_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/ui/erf.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/gpu/texture_pack.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/kernel/title_update.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/patches/patches.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/settings.cpp

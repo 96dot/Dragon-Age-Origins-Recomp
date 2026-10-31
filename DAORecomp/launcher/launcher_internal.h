@@ -14,6 +14,7 @@
 
 #include "content/installed.h"
 #include "content/save_backups.h"
+#include "gpu/texture_pack.h"
 #include "launcher/install_runner.h"
 #include "launcher/steam.h"
 #include "launcher/updater.h"
@@ -241,6 +242,13 @@ namespace dao::launcher
         bool modsRead = false;
         // config.toml couldn't be parsed: it isn't saved over (defaults are shown).
         bool settingsUnreadable = false;
+        // Texture packs (Configure > Graphics): the check running in the background
+        // (stopped with packStop), whether to check again after it, and the last
+        // one's results.
+        std::future<gpu::TexturePackReport> packCheck;
+        std::stop_source packStop;
+        bool packCheckAgain = false;
+        std::optional<gpu::TexturePackReport> packReport;
         // The game's file names, for the mods' warnings: read once (with the mod
         // list), shared with the background work.
         std::shared_ptr<const mods::GameFiles> gameFiles;

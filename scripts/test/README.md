@@ -108,7 +108,7 @@ compare. Its GPU time is the "depth of field" mark of `DAO_GPU_TIMING=1`.
 Put a pack (or a folder junction to one) in `texture packs\` next to the repo's `game\`.
 `xenia.dao_texture_log=true` logs to `xenia.log` each pack texture swapped in (with the
 graphics memory in use), refused over the budget, or sent back to the game's, and the
-identity of each game texture of 64 KB or more as it loads. For the budget, a small
+hash of the first 64 KB of each game texture of 64 KB or more as it loads. For the budget, a small
 `video.texture_pack_memory=64` shows refusals and swaps back on the walk:
 
 ```
@@ -119,6 +119,13 @@ Count swaps with `grep -c "swapped in ("` (plain "swapped in" also matches the "
 swapped in" refusals), and compare the frame pacing with the pack off
 (`video.texture_packs=false`): the `VdSwap #` lines of `dao.log`, 600 frames apart, should
 stay 10.00 s apart.
+
+`dao.log`'s "Texture packs:" line says "found" when the match was made again and "saved
+results" when it came from `userdata/texture_pack_index.bin` (delete it to make it
+again), and how many files were skipped for each reason.
+`EXTRA="DAO_TEXTURE_PACKS_TOGGLE_AT=60,80"` presses F9 at those seconds (test windows
+aren't focused, so the key can't be pressed): the game's own textures from 60 s, the
+pack's again from 80 s.
 
 ## Launcher and installer
 

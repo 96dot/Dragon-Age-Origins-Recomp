@@ -199,6 +199,18 @@ static fs::path FindGameRoot()
     return fs::current_path() / "game";
 }
 
+// Switches between the texture packs' textures and the game's own (F9; `by` for
+// the log). From two threads at once, neither switch is lost.
+static void ToggleTexturePacks(const char* by)
+{
+    auto& shown = xe::dao_live::values.texture_packs_shown;
+    bool show = shown.load(std::memory_order_relaxed);
+    while (!shown.compare_exchange_weak(show, !show, std::memory_order_relaxed))
+    {
+    }
+    LOGI("Texture packs: {} ({})", !show ? "shown" : "the game's own textures", by);
+}
+
 int main(int argc, char** argv)
 {
     // DLLs loaded by name (FidelityFX's and the optional dxcompiler/dxilconv, next to
@@ -349,7 +361,7 @@ int main(int argc, char** argv)
     const char* gpuMode = getenv("DAO_GPU");
     if (!(gpuMode && strcmp(gpuMode, "null") == 0))
     {
-        dao::gpu::StartTexturePackIndex(gameRoot);
+        dao::gpu::StartTexturePackIndex(gameRoot, userRoot);
         dao::gpu::InitializeXeniaGraphics(userRoot);
     }
 
@@ -419,12 +431,13 @@ int main(int argc, char** argv)
 
     // Hotkeys (game window focused): F6 pauses neural rendering and resumes it, F7
     // opens the cheats menu and closes it, F8 turns depth of field off and on (debug:
-    // not saved), F10 switches between the game's own 30 fps and the frame rate set,
-    // F11 between fullscreen and a window (not saved), F12 saves the frame history
-    // (DAO_FRAME_HISTORY).
+    // not saved), F9 switches between the texture packs' textures and the game's own
+    // (to compare; not saved), F10 switches between the game's own 30 fps and the
+    // frame rate set, F11 between fullscreen and a window (not saved), F12 saves the
+    // frame history (DAO_FRAME_HISTORY).
     // Polled at 20 Hz: each poll is a few window system calls (round trips to wineserver on Proton), and a key press is longer.
     std::thread([frameHistory, neural = dao::NeuralRenderingOn(dao::GetSettings())] {
-        constexpr int keys[] = { VK_F6, VK_F7, VK_F8, VK_F10, VK_F11, VK_F12 };
+        constexpr int keys[] = { VK_F6, VK_F7, VK_F8, VK_F9, VK_F10, VK_F11, VK_F12 };
         bool wasDown[std::size(keys)] = {};
         for (;;)
         {
@@ -453,6 +466,8 @@ int main(int argc, char** argv)
                         dof.store(on, std::memory_order_relaxed);
                         LOGI("Depth of field: {} (F8)", on ? "on" : "off");
                     }
+                    else if (keys[i] == VK_F9)
+                        ToggleTexturePacks("F9");
                     else if (keys[i] == VK_F10)
                         dao::gpu::ToggleGameFrameRate();
                     else if (keys[i] == VK_F11)
@@ -464,6 +479,29 @@ int main(int argc, char** argv)
             }
         }
     }).detach();
+
+    // DAO_TEXTURE_PACKS_TOGGLE_AT=<seconds>[,<seconds>...]: presses F9 at those times,
+    // each switching (for test runs, whose window isn't focused).
+    if (const char* spec = getenv("DAO_TEXTURE_PACKS_TOGGLE_AT"))
+    {
+        std::vector<int> times;
+        for (const char* at = spec; *at;)
+        {
+            char* end;
+            const long seconds = strtol(at, &end, 10);
+            if (end != at)
+                times.push_back(int(seconds));
+            at = *end == ',' ? end + 1 : end + strlen(end);
+        }
+        std::thread([times] {
+            const auto start = std::chrono::steady_clock::now();
+            for (const int seconds : times)
+            {
+                std::this_thread::sleep_until(start + std::chrono::seconds(seconds));
+                ToggleTexturePacks("DAO_TEXTURE_PACKS_TOGGLE_AT");
+            }
+        }).detach();
+    }
 
     // DAO_DUMP_MEM=<physical hex>:<hex length>[,...]@<seconds>: save guest physical
     // memory ranges to userdata/mem_<address>.bin (and a frame capture alongside).

@@ -119,6 +119,7 @@ namespace dao
             s.anisotropicFiltering = 0;
         if (std::ranges::find(kTexturePackMaxSizes, s.texturePackMaxSize) == std::end(kTexturePackMaxSizes))
             s.texturePackMaxSize = 0;
+        // (Up to 1 TB: far beyond any card, and << 20 to bytes stays in range.)
         s.texturePackMemory = std::clamp(s.texturePackMemory, 0, 1 << 20);
         if (std::ranges::find(kFrameRates, s.frameRate) == std::end(kFrameRates))
             s.frameRate = defaults.frameRate;
@@ -533,8 +534,9 @@ window_height = {}
         if (!s.texturePacks)
             LOGI("Settings: texture packs off");
         else if (s.texturePackMaxSize || s.texturePackMemory)
-            LOGI("Settings: texture packs up to {}, {}", s.texturePackMaxSize ? std::to_string(s.texturePackMaxSize) : "any size",
-                s.texturePackMemory ? fmt::format("{} MB", s.texturePackMemory) : "half the graphics memory");
+            LOGI("Settings: texture packs: size limit {}, memory {}",
+                s.texturePackMaxSize ? std::to_string(s.texturePackMaxSize) : "none",
+                s.texturePackMemory ? fmt::format("{} MB", s.texturePackMemory) : "automatic");
         if (s.hdr)
             LOGI("Settings: HDR output, paper white {} nits, peak {} nits, quality {}", s.hdrPaperWhite, s.hdrPeak,
                 HdrQualityName(s.hdrHighQuality));

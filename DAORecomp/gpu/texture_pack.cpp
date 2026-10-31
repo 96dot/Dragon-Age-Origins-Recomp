@@ -1,9 +1,11 @@
 #include "stdafx.h"
 #include "gpu/texture_pack.h"
 
+#include <fstream>
 #include <set>
-#include <stop_token>
 
+#include "files.h"
+#include "log.h"
 #include "settings.h"
 #include "text.h"
 #include "ui/erf.h"
@@ -14,6 +16,36 @@ namespace dao::gpu
     namespace fs = std::filesystem;
     namespace pack = xe::gpu::dao_texture_pack;
 
+    const char* DescribeStatus(PackFileStatus status)
+    {
+        switch (status)
+        {
+        case PackFileStatus::Used:
+            return "used";
+        case PackFileStatus::NotInGame:
+            return "no texture of that name in this version of the game (made for the PC version, or for "
+                   "DLC)";
+        case PackFileStatus::Shadowed:
+            return "a file of the same name in a later folder is used instead";
+        case PackFileStatus::GameFormat:
+            return "the game's texture isn't a compressed colour (DXT) or normal map (DXN) texture";
+        case PackFileStatus::FileFormat:
+            return "not a .dds of a format for that texture (DXT1, DXT3, DXT5 or BC7; BC5 for normal maps)";
+        case PackFileStatus::Damaged:
+            return "damaged";
+        case PackFileStatus::Unreadable:
+            return "couldn't be opened (in use by another program, or not allowed)";
+        case PackFileStatus::TooLarge:
+            return "over 512 MB";
+        case PackFileStatus::BadSize:
+            return "smaller than the game's texture (at the size limit), or its sides aren't multiples of 4";
+        case PackFileStatus::SameTexels:
+            return "another file already replaces a texture with the same texels";
+        default:
+            return "";
+        }
+    }
+
     namespace
     {
         // A .xds ends with the 52-byte D3D texture header the game reads (Common 3
@@ -21,31 +53,272 @@ namespace dao::gpu
         // mods/convert/texture.h).
         constexpr uint32_t kXdsHeaderBytes = 52;
         constexpr size_t kXdsFetchOffset = 28;
+        // The header's Common for a texture.
+        constexpr uint32_t kXdsCommonTexture = 3;
+        constexpr std::string_view kXdsExtension = ".xds";
         // The largest .xds read (an 8192x8192 DXT5 with mips is 86 MB).
         constexpr uint32_t kMaxXdsBytes = 96u << 20;
 
-        // The files under `root` (none if it can't be listed), stopping early if asked.
+        // The saved results, in userdata: the magic, the signature of the files and the
+        // size limit they were found from (SignFiles), each pack file's status and the
+        // index's entries (kSavedEntryBytes each). The magic's version
+        // goes up whenever the layout or what's matched changes (IsReplacedFormat,
+        // Fits, XdsEntry, the statuses), so older results are found again.
+        constexpr char kCacheName[] = "texture_pack_index.bin";
+        constexpr char kCacheMagic[8] = { 'D', 'A', 'O', 'T', 'P', 'I', 'X', '2' };
+        constexpr size_t kSavedEntryBytes = 52;
+        // Larger saved results aren't read (a pack of 20,000 files takes about 1 MB).
+        constexpr uintmax_t kMaxCacheBytes = 64u << 20;
+
+        // A pack file found, in path order (the cache relies on it).
+        struct PackFile
+        {
+            fs::path path;
+            // In the texture packs folder, with '/' (UTF-8), and the lower-case name
+            // without the extension.
+            std::string relative, name;
+            uint64_t size = 0;
+            int64_t time = 0;
+            PackFileStatus status = PackFileStatus::NotInGame;
+        };
+
+        // A game archive the textures are read from.
+        struct Archive
+        {
+            fs::path path;
+            uint64_t size = 0;
+            int64_t time = 0;
+        };
+
+        // An index entry as saved: its file by number, and its start's hash and length.
+        struct SavedEntry
+        {
+            uint32_t file;
+            uint32_t startLength;
+            uint64_t startHash;
+            pack::Index::Entry entry;
+        };
+
+        struct Found
+        {
+            std::vector<PackFile> files;
+            std::vector<SavedEntry> entries;
+            bool cached = false;
+            // Something couldn't be listed or read: the results aren't saved, so the
+            // next start tries again.
+            bool incomplete = false;
+        };
+
+        // The files under `root` with their sizes and times (none if it can't be
+        // listed), stopping early if asked; whether the listing was cut short (not if
+        // `root` doesn't exist).
         template <typename Function>
-        void ForEachFile(const fs::path& root, std::stop_token stop, Function&& function)
+        bool ForEachFile(const fs::path& root, std::stop_token stop, Function&& function)
         {
             std::error_code ec;
-            for (auto it = fs::recursive_directory_iterator(root, ec);
-                 !ec && !stop.stop_requested() && it != fs::recursive_directory_iterator(); it.increment(ec))
+            auto it = fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, ec);
+            if (ec)
+                return ec != std::errc::no_such_file_or_directory;
+            for (; !ec && !stop.stop_requested() && it != fs::recursive_directory_iterator(); it.increment(ec))
             {
                 std::error_code fileEc;
-                if (it->is_regular_file(fileEc))
-                    function(it->path());
+                if (!it->is_regular_file(fileEc))
+                    continue;
+                const uint64_t size = it->file_size(fileEc);
+                const int64_t time = fileEc ? 0 : it->last_write_time(fileEc).time_since_epoch().count();
+                function(it->path(), size, time);
             }
+            return bool(ec);
         }
 
-        // The index entry for a game .xds the pack has a file for, or none if it isn't
-        // a replaced format.
-        std::optional<pack::Index::Entry> XdsEntry(const std::vector<uint8_t>& xds, const fs::path& file,
-            uint64_t& startHash, uint32_t& startLength)
+        // The pack's .dds files, sorted by path; of those with the same name, all
+        // but the last are Shadowed.
+        std::vector<PackFile> ListPackFiles(const fs::path& packsRoot, std::stop_token stop, bool& incomplete)
+        {
+            std::vector<PackFile> files;
+            incomplete |= ForEachFile(packsRoot, stop, [&](const fs::path& path, uint64_t size, int64_t time) {
+                if (Lower(Utf8(path.extension())) != ".dds")
+                    return;
+                PackFile file;
+                file.path = path;
+                file.relative = WideToUtf8(path.lexically_relative(packsRoot).generic_wstring());
+                file.name = Lower(Utf8(path.stem()));
+                file.size = size;
+                file.time = time;
+                files.push_back(std::move(file));
+            });
+            std::ranges::sort(files, {}, &PackFile::path);
+            std::unordered_map<std::string, size_t> last;
+            for (size_t i = 0; i < files.size(); ++i)
+            {
+                const auto [it, added] = last.try_emplace(files[i].name, i);
+                if (!added)
+                {
+                    files[it->second].status = PackFileStatus::Shadowed;
+                    it->second = i;
+                }
+            }
+            return files;
+        }
+
+        // The game's archives with textures: those the game reads (as mods::GameFiles
+        // finds them), sorted by path.
+        std::vector<Archive> ListArchives(const fs::path& gameRoot, std::stop_token stop, bool& incomplete)
+        {
+            std::vector<fs::path> folders = { gameRoot / "packages" / "core" / "data" };
+            std::error_code ec;
+            for (auto it = fs::directory_iterator(gameRoot / "modules", ec);
+                 !ec && it != fs::directory_iterator(); it.increment(ec))
+                folders.push_back(it->path() / "data");
+            std::vector<Archive> archives;
+            for (const fs::path& data : folders)
+            {
+                incomplete |= ForEachFile(data, stop, [&](const fs::path& path, uint64_t size, int64_t time) {
+                    const std::string extension = Lower(Utf8(path.extension()));
+                    if (extension == ".erf" || extension == ".rim")
+                        archives.push_back({ path, size, time });
+                });
+            }
+            std::ranges::sort(archives, {}, &Archive::path);
+            return archives;
+        }
+
+        // What the results depend on: every pack file's and archive's path, size and
+        // time (the archives' paths in the game folder, so moving the game keeps them),
+        // and the size limit.
+        uint64_t SignFiles(const std::vector<PackFile>& files, const std::vector<Archive>& archives,
+            const fs::path& gameRoot, uint32_t maxSize)
+        {
+            uint64_t hash = pack::kHashBasis;
+            auto add = [&hash](const void* data, size_t size) {
+                hash = pack::Hash(static_cast<const uint8_t*>(data), size, hash);
+            };
+            auto addFile = [&](const std::string& path, uint64_t size, int64_t time) {
+                add(path.data(), path.size() + 1);
+                add(&size, sizeof(size));
+                add(&time, sizeof(time));
+            };
+            add(kCacheMagic, sizeof(kCacheMagic));
+            add(&maxSize, sizeof(maxSize));
+            for (const PackFile& file : files)
+                addFile(file.relative, file.size, file.time);
+            for (const Archive& archive : archives)
+                addFile(WideToUtf8(archive.path.lexically_relative(gameRoot).generic_wstring()), archive.size,
+                    archive.time);
+            return hash;
+        }
+
+        // Little-endian values in a byte string, and reading them back with bounds.
+        template <typename T>
+        void Put(std::string& out, T value)
+        {
+            out.append(reinterpret_cast<const char*>(&value), sizeof(value));
+        }
+
+        struct Reader
+        {
+            std::string_view data;
+            size_t at = 0;
+            bool ok = true;
+
+            template <typename T>
+            T Get()
+            {
+                T value{};
+                if (!ok || data.size() - at < sizeof(T))
+                {
+                    ok = false;
+                    return value;
+                }
+                memcpy(&value, data.data() + at, sizeof(T));
+                at += sizeof(T);
+                return value;
+            }
+        };
+
+        void SaveFound(const fs::path& userRoot, uint64_t signature, const Found& found)
+        {
+            std::string out(kCacheMagic, sizeof(kCacheMagic));
+            Put(out, signature);
+            Put(out, uint32_t(found.files.size()));
+            for (const PackFile& file : found.files)
+                Put(out, uint8_t(file.status));
+            Put(out, uint32_t(found.entries.size()));
+            for (const SavedEntry& saved : found.entries)
+            {
+                const pack::Index::Entry& entry = saved.entry;
+                Put(out, saved.file);
+                Put(out, saved.startLength);
+                Put(out, saved.startHash);
+                Put(out, entry.width);
+                Put(out, entry.height);
+                Put(out, entry.format);
+                Put(out, entry.sample_offset);
+                Put(out, entry.sample_length);
+                Put(out, entry.sample_hash);
+                Put(out, entry.id);
+            }
+            if (!WriteFileAtomically(userRoot / kCacheName, out))
+                LOGW("Texture packs: couldn't save {}", kCacheName);
+        }
+
+        // The saved results, if they're of these files.
+        bool LoadFound(const fs::path& userRoot, uint64_t signature, Found& found)
+        {
+            std::error_code ec;
+            if (fs::file_size(userRoot / kCacheName, ec) > kMaxCacheBytes || ec)
+                return false;
+            std::ifstream in(userRoot / kCacheName, std::ios::binary);
+            if (!in)
+                return false;
+            const std::string data((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (data.size() < sizeof(kCacheMagic) || memcmp(data.data(), kCacheMagic, sizeof(kCacheMagic)) != 0)
+                return false;
+            Reader reader{ data, sizeof(kCacheMagic) };
+            if (reader.Get<uint64_t>() != signature || reader.Get<uint32_t>() != found.files.size())
+                return false;
+            for (PackFile& file : found.files)
+            {
+                const uint8_t status = reader.Get<uint8_t>();
+                if (status >= uint8_t(PackFileStatus::Count))
+                    return false;
+                file.status = PackFileStatus(status);
+            }
+            const uint32_t count = reader.Get<uint32_t>();
+            // No more than the data holds.
+            if (!reader.ok || count > (data.size() - reader.at) / kSavedEntryBytes)
+                return false;
+            found.entries.resize(count);
+            for (SavedEntry& saved : found.entries)
+            {
+                pack::Index::Entry& entry = saved.entry;
+                saved.file = reader.Get<uint32_t>();
+                saved.startLength = reader.Get<uint32_t>();
+                saved.startHash = reader.Get<uint64_t>();
+                entry.width = reader.Get<uint32_t>();
+                entry.height = reader.Get<uint32_t>();
+                entry.format = reader.Get<uint32_t>();
+                entry.sample_offset = reader.Get<uint32_t>();
+                entry.sample_length = reader.Get<uint32_t>();
+                entry.sample_hash = reader.Get<uint64_t>();
+                entry.id = reader.Get<uint64_t>();
+                if (saved.file >= found.files.size() || !saved.startLength ||
+                    saved.startLength > pack::kMaxIdBytes || entry.sample_length > pack::kSampleBytes ||
+                    !pack::IsReplacedFormat(entry.format))
+                    return false;
+                entry.file = found.files[saved.file].path;
+            }
+            return reader.ok && reader.at == data.size();
+        }
+
+        // The index entry for one of the game's .xds of a pack file's name, or why
+        // that file can't stand for it.
+        PackFileStatus XdsEntry(const std::vector<uint8_t>& xds, const pack::Dds& dds, uint32_t maxSize,
+            SavedEntry& saved)
         {
             const size_t header = xds.size() - kXdsHeaderBytes;
-            if (ui::ReadBE32(xds, header) != 3)
-                return std::nullopt;
+            if (ui::ReadBE32(xds, header) != kXdsCommonTexture)
+                return PackFileStatus::GameFormat;
             // The fetch constant: dword 1 has the format (low 6 bits) and the base
             // address, dword 2 the width - 1 and height - 1 (13 bits each), dword 5 the
             // mips' address (4 KB aligned, 0 without mips), as offsets in the file.
@@ -54,19 +327,22 @@ namespace dao::gpu
             const uint32_t size = ui::ReadBE32(xds, fetch + 8);
             const uint32_t mipAddress = ui::ReadBE32(xds, fetch + 20) & 0xFFFFF000;
             const uint32_t baseAddress = dword1 & 0xFFFFF000;
-            pack::Index::Entry entry = {};
-            entry.file = file;
+            pack::Index::Entry& entry = saved.entry;
             entry.format = dword1 & 0x3F;
             if (!pack::IsReplacedFormat(entry.format))
-                return std::nullopt;
+                return PackFileStatus::GameFormat;
+            if (!pack::Fits(dds.format, entry.format))
+                return PackFileStatus::FileFormat;
             entry.width = (size & 0x1FFF) + 1;
             entry.height = (size >> 13 & 0x1FFF) + 1;
+            if (!dds.FirstLevelFits(maxSize, entry.width, entry.height))
+                return PackFileStatus::BadSize;
             // The base level: up to the mips, or all the texels.
             size_t baseBytes = header;
             if (mipAddress > baseAddress && mipAddress - baseAddress < header)
                 baseBytes = mipAddress - baseAddress;
-            startLength = uint32_t(std::min(baseBytes, size_t(pack::kMaxIdBytes)));
-            startHash = pack::Hash(xds.data(), startLength);
+            saved.startLength = uint32_t(std::min(baseBytes, size_t(pack::kMaxIdBytes)));
+            saved.startHash = pack::Hash(xds.data(), saved.startLength);
             // Beyond the start, a sample from the middle of the base level.
             if (baseBytes > pack::kMaxIdBytes)
             {
@@ -74,120 +350,270 @@ namespace dao::gpu
                 entry.sample_length = uint32_t(std::min(size_t(pack::kSampleBytes), baseBytes - entry.sample_offset));
                 entry.sample_hash = pack::Hash(xds.data() + entry.sample_offset, entry.sample_length);
             }
-            entry.id = entry.sample_length ? pack::Hash(reinterpret_cast<const uint8_t*>(&entry.sample_hash),
-                                                 sizeof(entry.sample_hash), startHash)
-                                           : startHash;
-            return entry;
+            entry.id = entry.sample_length
+                ? pack::Hash(reinterpret_cast<const uint8_t*>(&entry.sample_hash), sizeof(entry.sample_hash),
+                      saved.startHash)
+                : saved.startHash;
+            return PackFileStatus::Used;
         }
 
-        void BuildIndex(std::stop_token stop, const fs::path& gameRoot, const fs::path& packsRoot,
-            uint32_t maxSize, uint64_t memoryBudget)
+        // How much a status says of a file with several of the game's textures of its
+        // name: the one shown is the most telling.
+        int Rank(PackFileStatus status)
         {
-            const auto start = std::chrono::steady_clock::now();
-
-            // The pack's files by lower-case name; where two packs have the same one,
-            // the later path (alphabetically) wins.
-            std::vector<fs::path> ddsFiles;
-            ForEachFile(packsRoot, stop, [&](const fs::path& path) {
-                if (Lower(Utf8(path.extension())) == ".dds")
-                    ddsFiles.push_back(path);
-            });
-            std::ranges::sort(ddsFiles);
-            std::unordered_map<std::string, fs::path> byName;
-            for (const fs::path& file : ddsFiles)
-                byName[Lower(Utf8(file.stem()))] = file;
-            if (byName.empty())
-                return;
-
-            // The game's .xds of those names, from the archives the game reads (as
-            // mods::GameFiles finds them). A mod's replacement of one has other
-            // texels, so the pack doesn't replace it.
-            auto index = std::make_shared<pack::Index>();
-            std::set<uint32_t> lengths;
-            // Each entry's file, by id.
-            std::unordered_map<uint64_t, fs::path> files;
-            size_t collisions = 0;
-            std::vector<fs::path> folders = { gameRoot / "packages" / "core" / "data" };
-            std::error_code ec;
-            for (auto it = fs::directory_iterator(gameRoot / "modules", ec);
-                 !ec && it != fs::directory_iterator(); it.increment(ec))
-                folders.push_back(it->path() / "data");
-            for (const fs::path& data : folders)
+            switch (status)
             {
-                ForEachFile(data, stop, [&](const fs::path& path) {
-                    const std::string extension = Lower(Utf8(path.extension()));
-                    if (extension != ".erf" && extension != ".rim")
+            case PackFileStatus::Used:
+                return 5;
+            case PackFileStatus::FileFormat:
+            case PackFileStatus::Damaged:
+            case PackFileStatus::Unreadable:
+            case PackFileStatus::TooLarge:
+                return 4;
+            case PackFileStatus::BadSize:
+                return 3;
+            case PackFileStatus::SameTexels:
+                return 2;
+            case PackFileStatus::GameFormat:
+                return 1;
+            default:
+                return 0;
+            }
+        }
+
+        // A pack file's .dds header, or why it can't be used.
+        PackFileStatus ReadDdsHeader(const PackFile& file, pack::Dds& dds)
+        {
+            uint8_t head[pack::kDdsDx10HeaderBytes];
+            std::ifstream in(file.path, std::ios::binary);
+            if (!in)
+                return PackFileStatus::Unreadable;
+            in.read(reinterpret_cast<char*>(head), sizeof(head));
+            if (size_t(in.gcount()) < pack::kDdsHeaderBytes)
+                return PackFileStatus::Damaged;
+            switch (pack::ParseDds(head, size_t(in.gcount()), file.size, dds))
+            {
+            case pack::DdsProblem::kNone:
+                return PackFileStatus::Used;
+            case pack::DdsProblem::kTooLarge:
+                return PackFileStatus::TooLarge;
+            case pack::DdsProblem::kDamaged:
+                return PackFileStatus::Damaged;
+            default:
+                return PackFileStatus::FileFormat;
+            }
+        }
+
+        // Matches the pack files (not Shadowed) against the game's .xds of their names.
+        void Match(const std::vector<Archive>& archives, uint32_t maxSize, std::stop_token stop, Found& found)
+        {
+            std::unordered_map<std::string, size_t> byName;
+            for (size_t i = 0; i < found.files.size(); ++i)
+            {
+                if (found.files[i].status != PackFileStatus::Shadowed)
+                    byName[found.files[i].name] = i;
+            }
+            // Each file's header, read at its first match (Used: readable).
+            std::unordered_map<size_t, std::pair<PackFileStatus, pack::Dds>> headers;
+            // Each entry's file, by id.
+            std::unordered_map<uint64_t, uint32_t> fileById;
+            for (const Archive& archive : archives)
+            {
+                if (stop.stop_requested())
+                    return;
+                const auto erf = ui::ErfArchive::Open(archive.path);
+                if (!erf)
+                {
+                    // Not a V2.1 archive (the scripts' are V2.0, without textures), or
+                    // not readable now.
+                    if (!std::ifstream(archive.path, std::ios::binary))
+                        found.incomplete = true;
+                    continue;
+                }
+                for (const auto& erfEntry : erf->Entries())
+                {
+                    if (stop.stop_requested())
                         return;
-                    const auto erf = ui::ErfArchive::Open(path);
-                    if (!erf)
-                        return;
-                    for (const auto& erfEntry : erf->Entries())
+                    const std::string name = Lower(erfEntry.name);
+                    if (!name.ends_with(kXdsExtension) || erfEntry.size <= kXdsHeaderBytes)
+                        continue;
+                    const auto file = byName.find(name.substr(0, name.size() - kXdsExtension.size()));
+                    if (file == byName.end())
+                        continue;
+                    PackFile& packFile = found.files[file->second];
+                    auto header = headers.find(file->second);
+                    if (header == headers.end())
                     {
-                        const std::string name = Lower(erfEntry.name);
-                        if (!name.ends_with(".xds") || erfEntry.size <= kXdsHeaderBytes)
-                            continue;
-                        const auto file = byName.find(name.substr(0, name.size() - 4));
-                        if (file == byName.end())
-                            continue;
+                        pack::Dds dds;
+                        const PackFileStatus problem = ReadDdsHeader(packFile, dds);
+                        header = headers.try_emplace(file->second, problem, dds).first;
+                    }
+                    PackFileStatus status = header->second.first;
+                    SavedEntry saved{ uint32_t(file->second) };
+                    if (status == PackFileStatus::Used)
+                    {
                         const auto xds = erf->Read(erfEntry, kMaxXdsBytes);
                         if (!xds || xds->size() <= kXdsHeaderBytes)
+                        {
+                            found.incomplete = true;
                             continue;
-                        uint64_t startHash;
-                        uint32_t startLength;
-                        auto entry = XdsEntry(*xds, file->second, startHash, startLength);
-                        if (!entry)
-                            continue;
-                        const auto [same, added] = files.try_emplace(entry->id, entry->file);
+                        }
+                        status = XdsEntry(*xds, header->second.second, maxSize, saved);
+                    }
+                    if (status == PackFileStatus::Used)
+                    {
+                        const auto [existing, added] = fileById.try_emplace(saved.entry.id, saved.file);
                         if (!added)
                         {
                             // The same texels again: the same texture (in another
                             // archive), or two that can't be told apart (the first wins).
-                            if (same->second != entry->file)
-                                ++collisions;
-                            continue;
+                            if (existing->second == saved.file)
+                                continue;
+                            status = PackFileStatus::SameTexels;
                         }
-                        index->shapes.insert(pack::Shape(entry->width, entry->height, entry->format));
-                        index->entries[startHash].push_back(std::move(*entry));
-                        lengths.insert(startLength);
-                        ++index->entry_count;
+                        else
+                        {
+                            saved.entry.file = packFile.path;
+                            found.entries.push_back(std::move(saved));
+                        }
                     }
-                });
+                    if (Rank(status) > Rank(packFile.status))
+                        packFile.status = status;
+                }
             }
-            if (stop.stop_requested())
+        }
+
+        // The pack files and what they replace: saved, or found again if any file
+        // changed since.
+        Found FindPackTextures(const fs::path& gameRoot, const fs::path& userRoot, uint32_t maxSize,
+            std::stop_token stop)
+        {
+            Found found;
+            found.files = ListPackFiles(TexturePacksRoot(gameRoot), stop, found.incomplete);
+            if (found.files.empty() || stop.stop_requested())
+                return found;
+            const std::vector<Archive> archives = ListArchives(gameRoot, stop, found.incomplete);
+            const uint64_t signature = SignFiles(found.files, archives, gameRoot, maxSize);
+            // (On a copy: a cache that doesn't fit may have set some statuses.)
+            Found saved = found;
+            if (LoadFound(userRoot, signature, saved))
+            {
+                saved.cached = true;
+                return saved;
+            }
+            Match(archives, maxSize, stop, found);
+            if (found.incomplete)
+                LOGW("Texture packs: some files couldn't be listed or read, so the results aren't saved");
+            else if (!stop.stop_requested())
+                SaveFound(userRoot, signature, found);
+            return found;
+        }
+
+        void BuildIndex(std::stop_token stop, const fs::path& gameRoot, const fs::path& userRoot,
+            uint32_t maxSize, uint64_t memoryBudget)
+        {
+            const auto start = std::chrono::steady_clock::now();
+            Found found = FindPackTextures(gameRoot, userRoot, maxSize, stop);
+            if (found.files.empty() || stop.stop_requested())
                 return;
+
+            auto index = std::make_shared<pack::Index>();
+            std::set<uint32_t> lengths;
+            for (SavedEntry& saved : found.entries)
+            {
+                index->shapes.insert(pack::Shape(saved.entry.width, saved.entry.height, saved.entry.format));
+                index->entries[saved.startHash].push_back(std::move(saved.entry));
+                lengths.insert(saved.startLength);
+                ++index->entry_count;
+            }
             index->lengths.assign(lengths.begin(), lengths.end());
             index->max_size = maxSize;
             index->memory_budget = memoryBudget;
-            LOGI("Texture packs: {} of {} textures in texture packs replace the game's ({} ms)",
-                index->entry_count, byName.size(),
-                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count());
-            if (collisions)
-                LOGW("Texture packs: {} of the game's textures have the same texels as another of another name", collisions);
+
+            size_t statuses[size_t(PackFileStatus::Count)] = {};
+            for (const PackFile& file : found.files)
+                ++statuses[size_t(file.status)];
+            std::string skipped;
+            // (From 1: past Used.)
+            for (size_t i = 1; i < std::size(statuses); ++i)
+            {
+                if (statuses[i])
+                    skipped += fmt::format("; {} {}", statuses[i], DescribeStatus(PackFileStatus(i)));
+            }
+            LOGI("Texture packs: {} of {} files replace {} of the game's textures ({}, {} ms){}",
+                statuses[size_t(PackFileStatus::Used)], found.files.size(), index->entry_count,
+                found.cached ? "saved results" : "found",
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count(),
+                skipped);
             if (index->entry_count)
                 pack::Publish(std::move(index));
+        }
+
+        // An error for the log: for files, without their paths (which have the
+        // player's name).
+        std::string ErrorText(const std::exception& e)
+        {
+            if (const auto* error = dynamic_cast<const fs::filesystem_error*>(&e))
+                return error->code().message();
+            return e.what();
         }
 
         // Stopped and joined at exit.
         std::jthread indexThread;
     }
 
-    void StartTexturePackIndex(const fs::path& gameRoot)
+    void StartTexturePackIndex(const fs::path& gameRoot, const fs::path& userRoot)
     {
         const Settings& settings = GetSettings();
         std::error_code ec;
         if (!settings.texturePacks || !fs::is_directory(TexturePacksRoot(gameRoot), ec))
             return;
-        indexThread = std::jthread([gameRoot, maxSize = uint32_t(settings.texturePackMaxSize),
+        indexThread = std::jthread([gameRoot, userRoot, maxSize = uint32_t(settings.texturePackMaxSize),
                                        memoryBudget = uint64_t(settings.texturePackMemory) << 20](std::stop_token stop) {
             try
             {
-                BuildIndex(stop, gameRoot, TexturePacksRoot(gameRoot), maxSize, memoryBudget);
+                BuildIndex(stop, gameRoot, userRoot, maxSize, memoryBudget);
             }
             catch (const std::exception& e)
             {
                 // Out of memory or a damaged archive: no pack this time.
-                LOGW("Texture packs: couldn't read the game's textures: {}", e.what());
+                LOGW("Texture packs: couldn't read the game's textures: {}", ErrorText(e));
             }
         });
+    }
+
+    TexturePackReport CheckTexturePacks(const fs::path& gameRoot, const fs::path& userRoot, int maxSize,
+        std::stop_token stop)
+    {
+        TexturePackReport report;
+        report.maxSize = maxSize;
+        try
+        {
+            const Found found = FindPackTextures(gameRoot, userRoot, uint32_t(maxSize), stop);
+            std::map<std::string, TexturePackReport::Pack> packs;
+            for (const PackFile& file : found.files)
+            {
+                const size_t slash = file.relative.find('/');
+                const std::string name = slash != std::string::npos ? file.relative.substr(0, slash) : "";
+                TexturePackReport::Pack& folder = packs[name];
+                folder.name = name;
+                ++folder.files;
+                if (file.status == PackFileStatus::Used)
+                {
+                    ++folder.used;
+                    folder.usedNames.push_back(file.name);
+                }
+                else
+                    folder.skipped.push_back({ file.relative, file.status });
+            }
+            for (auto& [name, folder] : packs)
+                report.packs.push_back(std::move(folder));
+        }
+        catch (const std::exception& e)
+        {
+            report.error = ErrorText(e);
+            LOGW("Texture packs: couldn't check them: {}", report.error);
+        }
+        return report;
     }
 }

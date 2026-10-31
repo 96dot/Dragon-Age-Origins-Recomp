@@ -521,6 +521,12 @@ namespace dao::launcher
             frameStart = SDL_GetTicksNS();
         }
 
+        // A texture pack check still running: stopped.
+        if (st.packCheck.valid())
+        {
+            st.packStop.request_stop();
+            st.packCheck.wait();
+        }
         // Mods still being read, added or converted: stopped (what's done is kept).
         if (ModsBusy(st) || ReadingMods(st))
         {

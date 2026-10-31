@@ -366,16 +366,37 @@ Mods) go in `texture packs/`, next to `game/` (in any folders inside it; with *C
 Graphics → Texture packs* on, *Open the texture packs folder* makes and opens it), and
 aren't converted: each replaces the game's texture of the same name on the graphics card
 only, so the game keeps its own small copies in the 360's 512 MB and the pack's can be up
-to 16384 pixels wide (and 512 MB a file). At startup the game matches the pack against its
-own textures (a second or two, in the background; textures already on screen by then are
-replaced once it's done), and loads the pack's files in the background as their textures
-appear, so a texture may sharpen a moment later. DXT1, DXT3, DXT5 and BC7 files replace
-the game's DXT textures; where a mod replaces a texture, the mod's stays (the pack only
-matches the game's own). *Texture pack size limit* (`texture_pack_max_size` in the
-`[video]` section) loads larger textures at that size, and `texture_pack_memory` (only in
-`config.toml`) caps the graphics memory they take in MB (0, the default: half the graphics
-card's own, at least 256 MB). When it's full, the pack's textures not seen for a second go
-back to the game's to make room, and those that still don't fit stay the game's.
+to 16384 pixels wide (and 512 MB a file). The game matches the packs against its own
+textures the first time (a second or two, in the background; textures already on screen by
+then are replaced once it's done) and saves the results in
+`userdata/texture_pack_index.bin`, so later starts only check that no file changed. It
+loads the pack's files in the background as their textures appear, so a texture may
+sharpen a moment later. In the game, F9 switches between the packs' textures and the
+game's own, to compare (not saved).
+
+Below the texture pack settings, the launcher shows how many of each pack's files are
+used, and under *Files not used*, why the others aren't (*Check again* after changing the
+folder). The limits:
+
+- **Names:** a file replaces the game's texture of the same name, from the base game's
+  archives only: files made for the PC version's own textures (such as the `*__pal`
+  terrain palettes) and for DLC areas aren't used.
+- **Kinds:** the game's colour textures (DXT1, DXT3 or DXT5 on the 360) take DXT1, DXT3,
+  DXT5 or BC7 files, and its two-channel normal maps (DXN) take BC5 files. PC normal maps
+  saved as DXT5 don't fit those. Uncompressed textures, cube maps, and textures the game
+  draws into aren't replaced.
+- **Sizes:** not smaller than the game's texture, sides in multiples of 4, at most 16384
+  pixels a side and 512 MB a file.
+- **Mods and other packs:** where a mod replaces a texture, the mod's stays (the pack only
+  matches the game's own); where two packs have a file of the same name, the one in the
+  later folder (alphabetically) is used.
+
+*Texture pack size limit* (`texture_pack_max_size` in the `[video]` section) loads larger
+textures at that size, for the Steam Deck or cards with 4 GB or less, and *Texture pack
+memory* (`texture_pack_memory`, in MB) caps the graphics memory they take (*Automatic*,
+the default: half the graphics card's own, at least 256 MB). When it's full, the pack's
+textures not seen for a second go back to the game's to make room, and those that still
+don't fit stay the game's.
 
 Photo mode starts from the START menu's *Photo Mode* row (below *Achievements*, which
 stays greyed: there are no achievements here) or by clicking both sticks (L3+R3) while

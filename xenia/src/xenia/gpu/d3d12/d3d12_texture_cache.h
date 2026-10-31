@@ -728,6 +728,12 @@ class D3D12TextureCache final : public TextureCache {
     void DaoReplace(Microsoft::WRL::ComPtr<ID3D12Resource> resource,
                     uint64_t id, DXGI_FORMAT format, uint32_t mip_levels,
                     uint64_t bytes);
+    // Whether the pack's image is the one in use (F9 can put the game's back
+    // for a while, keeping the pack's).
+    bool dao_shown() const { return dao_id_ && !dao_hidden_; }
+    // Swaps the game's resource and the pack's in use; the views must have
+    // been taken.
+    void DaoSwapShown();
     // Puts the game's resource back and returns the pack's; the views must
     // have been taken.
     Microsoft::WRL::ComPtr<ID3D12Resource> DaoRestore();
@@ -751,7 +757,10 @@ class D3D12TextureCache final : public TextureCache {
     DXGI_FORMAT dao_format_ = DXGI_FORMAT_UNKNOWN;
     uint32_t dao_mip_levels_ = 0;
     uint64_t dao_bytes_ = 0;
-    // The game's resource while the pack's is in its place.
+    // F9 has put the game's resource back in use for now (DaoSwapShown).
+    bool dao_hidden_ = false;
+    // The game's resource while the pack's is in its place (the pack's while
+    // hidden).
     Microsoft::WRL::ComPtr<ID3D12Resource> dao_game_resource_;
     D3D12_RESOURCE_STATES dao_game_resource_state_ = D3D12_RESOURCE_STATE_COMMON;
   };
@@ -770,6 +779,8 @@ class D3D12TextureCache final : public TextureCache {
   std::unordered_set<uint64_t> dao_pack_over_budget_;
   bool dao_pack_rebind_ = false;
   uint64_t dao_pack_frame_ = UINT64_MAX;
+  // Whether the pack's images are in use (F9: dao_live texture_packs_shown).
+  bool dao_pack_shown_ = true;
   uint64_t dao_pack_frame_bytes_ = 0;
   // Shared with the loader thread (under the mutex): the jobs, what it has
   // read, and that read's upload memory.

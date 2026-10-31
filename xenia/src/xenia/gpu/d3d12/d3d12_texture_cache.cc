@@ -1339,9 +1339,19 @@ void D3D12TextureCache::D3D12Texture::DaoReplace(
   dao_bytes_ = bytes;
 }
 
+void D3D12TextureCache::D3D12Texture::DaoSwapShown() {
+  assert_true(srv_descriptors_.empty() && dao_id_);
+  std::swap(resource_, dao_game_resource_);
+  std::swap(resource_state_, dao_game_resource_state_);
+  dao_hidden_ = !dao_hidden_;
+}
+
 Microsoft::WRL::ComPtr<ID3D12Resource>
 D3D12TextureCache::D3D12Texture::DaoRestore() {
   assert_true(srv_descriptors_.empty() && dao_id_);
+  if (dao_hidden_) {
+    DaoSwapShown();
+  }
   Microsoft::WRL::ComPtr<ID3D12Resource> pack_resource = std::move(resource_);
   resource_ = std::move(dao_game_resource_);
   resource_state_ = dao_game_resource_state_;
@@ -1364,16 +1374,6 @@ constexpr uint64_t kDaoPackLoadedBytesMax = 256ull << 20;
 constexpr uint64_t kDaoPackKeepMs = 1000;
 // The budget when it's left to the GPU: half its own memory, at least this.
 constexpr uint64_t kDaoPackMinBudget = 256ull << 20;
-// Larger .dds files aren't read (a 16384x16384 DXT5 with mips is 358 MB).
-constexpr uint64_t kDaoPackMaxFileBytes = 512ull << 20;
-// D3D12's largest 2D texture side.
-constexpr uint32_t kDaoPackMaxSide = 16384;
-// Larger sides in a .dds header are taken as damage (and keep the size math
-// far from overflowing).
-constexpr uint32_t kDaoPackMaxFileSide = 65536;
-// The .dds header (with the magic), and with the DX10 one after it.
-constexpr size_t kDdsHeaderBytes = 128;
-constexpr size_t kDdsDx10HeaderBytes = 148;
 }  // namespace
 
 void D3D12TextureCache::DaoPackStart() {
@@ -1461,6 +1461,17 @@ void D3D12TextureCache::DaoPackSwapLoaded() {
     dao_pack_frame_ = frame;
     dao_pack_frame_bytes_ = 0;
   }
+  // DAO texture packs: F9 shows the game's own textures, to compare (the
+  // pack's stay loaded).
+  bool shown = xe::dao_live::values.texture_packs_shown.load(
+      std::memory_order_relaxed);
+  if (shown != dao_pack_shown_) {
+    dao_pack_shown_ = shown;
+    for (D3D12Texture* texture : dao_pack_replaced_) {
+      DaoPackReleaseDescriptors(*texture);
+      texture->DaoSwapShown();
+    }
+  }
   for (;;) {
     DaoPackLoaded loaded;
     {
@@ -1522,6 +1533,9 @@ void D3D12TextureCache::DaoPackSwapLoaded() {
     DaoPackReleaseDescriptors(*texture);
     texture->DaoReplace(std::move(loaded.resource), loaded.id, loaded.format,
                         uint32_t(loaded.layouts.size()), loaded.bytes);
+    if (!dao_pack_shown_) {
+      texture->DaoSwapShown();
+    }
     // Not destroyed before the copy is done.
     texture->MarkAsUsed();
     dao_pack_replaced_.push_back(texture);
@@ -1627,124 +1641,85 @@ D3D12TextureCache::DaoPackLoaded D3D12TextureCache::DaoPackLoad(
 
   std::ifstream file(job.file, std::ios::binary | std::ios::ate);
   std::streamoff file_size = file ? std::streamoff(file.tellg()) : -1;
-  if (file_size < std::streamoff(kDdsDx10HeaderBytes) ||
-      uint64_t(file_size) > kDaoPackMaxFileBytes) {
-    XELOGW("DAO texture pack: can't use {} (missing, or too small or large)",
-           name);
+  if (file_size < 0) {
+    XELOGW("DAO texture pack: couldn't open {}", name);
     return loaded;
   }
-  std::vector<uint8_t> dds(static_cast<size_t>(file_size));
+  // The header first: the file isn't read if it can't be used.
+  uint8_t head[dao_texture_pack::kDdsDx10HeaderBytes];
+  size_t head_size = size_t(std::min(file_size, std::streamoff(sizeof(head))));
   file.seekg(0);
-  if (!file.read(reinterpret_cast<char*>(dds.data()), file_size)) {
-    XELOGW("DAO texture pack: couldn't read {}", name);
+  dao_texture_pack::Dds dds;
+  dao_texture_pack::DdsProblem problem =
+      file.read(reinterpret_cast<char*>(head), head_size)
+          ? dao_texture_pack::ParseDds(head, head_size, uint64_t(file_size),
+                                       dds)
+          : dao_texture_pack::DdsProblem::kDamaged;
+  if (problem == dao_texture_pack::DdsProblem::kNone &&
+      !dao_texture_pack::Fits(dds.format, uint32_t(job.key.format))) {
+    problem = dao_texture_pack::DdsProblem::kFormat;
+  }
+  if (problem != dao_texture_pack::DdsProblem::kNone) {
+    XELOGW("DAO texture pack: not using {} ({})", name,
+           problem == dao_texture_pack::DdsProblem::kFormat
+               ? "not a 2D .dds of a format for this texture"
+           : problem == dao_texture_pack::DdsProblem::kTooLarge
+               ? "over 512 MB"
+               : "damaged");
     return loaded;
   }
-  auto u32 = [&dds](size_t offset) {
-    uint32_t value;
-    std::memcpy(&value, dds.data() + offset, sizeof(value));
-    return value;
-  };
-
-  // The DDS header (after the magic "DDS "): height at 12, width at 16, mip
-  // count at 28, the FourCC at 84, caps2 at 112; with "DX10", the DXGI format
-  // at 128, the dimension at 132 (3: 2D), the misc flags at 136 (4: cube map)
-  // and the array size at 140, and the texels after them, otherwise after the
-  // 128 bytes. Volumes, cube maps and arrays aren't used.
-  constexpr uint32_t kCubemap = 0x200, kVolume = 0x200000;
-  constexpr uint32_t kDx10Texture2D = 3, kDx10Cube = 0x4;
-  uint32_t height = u32(12), width = u32(16);
-  uint32_t mip_levels = std::max(u32(28), uint32_t(1));
-  size_t data_offset = kDdsHeaderBytes;
-  DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
-  if (u32(0) == 0x20534444 && !(u32(112) & (kCubemap | kVolume))) {
-    switch (u32(84)) {
-      case 0x31545844:  // DXT1
-        format = DXGI_FORMAT_BC1_UNORM;
-        break;
-      case 0x33545844:  // DXT3
-        format = DXGI_FORMAT_BC2_UNORM;
-        break;
-      case 0x35545844:  // DXT5
-        format = DXGI_FORMAT_BC3_UNORM;
-        break;
-      case 0x30315844:  // DX10
-        data_offset = kDdsDx10HeaderBytes;
-        if (u32(132) != kDx10Texture2D || (u32(136) & kDx10Cube) ||
-            u32(140) > 1) {
-          break;
-        }
-        switch (DXGI_FORMAT(u32(128))) {
-          case DXGI_FORMAT_BC1_UNORM:
-          case DXGI_FORMAT_BC1_UNORM_SRGB:
-            format = DXGI_FORMAT_BC1_UNORM;
-            break;
-          case DXGI_FORMAT_BC2_UNORM:
-          case DXGI_FORMAT_BC2_UNORM_SRGB:
-            format = DXGI_FORMAT_BC2_UNORM;
-            break;
-          case DXGI_FORMAT_BC3_UNORM:
-          case DXGI_FORMAT_BC3_UNORM_SRGB:
-            format = DXGI_FORMAT_BC3_UNORM;
-            break;
-          case DXGI_FORMAT_BC7_UNORM:
-          case DXGI_FORMAT_BC7_UNORM_SRGB:
-            format = DXGI_FORMAT_BC7_UNORM;
-            break;
-          default:
-            break;
-        }
-        break;
-      default:
-        break;
-    }
-  }
-  if (format == DXGI_FORMAT_UNKNOWN) {
-    XELOGW("DAO texture pack: {} isn't a 2D DXT1/3/5 or BC7 .dds", name);
-    return loaded;
-  }
-  if (!width || !height || width > kDaoPackMaxFileSide ||
-      height > kDaoPackMaxFileSide) {
-    XELOGW("DAO texture pack: {} is damaged ({}x{})", name, width, height);
-    return loaded;
-  }
-  uint32_t block_bytes = format == DXGI_FORMAT_BC1_UNORM ? 8 : 16;
-  auto level_bytes = [&](uint32_t level) {
-    return size_t(std::max(((width >> level) + 3) / 4, uint32_t(1))) *
-           std::max(((height >> level) + 3) / 4, uint32_t(1)) * block_bytes;
-  };
-  // Not more mips than down to 1x1 (the "| 1": log2 of at least 1).
-  mip_levels = std::min(
-      mip_levels, uint32_t(xe::log2_floor(std::max(width, height) | 1)) + 1);
-  size_t data_end = data_offset;
-  for (uint32_t level = 0; level < mip_levels; ++level) {
-    data_end += level_bytes(level);
-  }
-  if (dds.size() < data_end) {
-    XELOGW("DAO texture pack: {} is damaged (shorter than its mips)", name);
-    return loaded;
+  DXGI_FORMAT format;
+  switch (dds.format) {
+    case dao_texture_pack::FileFormat::kBC1:
+      format = DXGI_FORMAT_BC1_UNORM;
+      break;
+    case dao_texture_pack::FileFormat::kBC2:
+      format = DXGI_FORMAT_BC2_UNORM;
+      break;
+    case dao_texture_pack::FileFormat::kBC3:
+      format = DXGI_FORMAT_BC3_UNORM;
+      break;
+    case dao_texture_pack::FileFormat::kBC4:
+      format = DXGI_FORMAT_BC4_UNORM;
+      break;
+    case dao_texture_pack::FileFormat::kBC5:
+      format = DXGI_FORMAT_BC5_UNORM;
+      break;
+    case dao_texture_pack::FileFormat::kBC7:
+      format = DXGI_FORMAT_BC7_UNORM;
+      break;
+    default:
+      // (ParseDds has none other.)
+      return loaded;
   }
 
-  // Leave out the mips above the size limit, and D3D12's.
-  uint32_t max_size = job.max_size ? std::min(job.max_size, kDaoPackMaxSide)
-                                   : kDaoPackMaxSide;
-  uint32_t first_level = 0;
-  while (first_level + 1 < mip_levels &&
-         std::max(width >> first_level, height >> first_level) > max_size) {
-    data_offset += level_bytes(first_level);
-    ++first_level;
+  // Leave out the mips above the size limit, and D3D12's, unread.
+  uint32_t first_level = dds.FirstLevel(job.max_size);
+  size_t data_offset = dds.data_offset;
+  for (uint32_t level = 0; level < first_level; ++level) {
+    data_offset += dds.LevelBytes(level);
   }
-  uint32_t level_width = std::max(width >> first_level, uint32_t(1));
-  uint32_t level_height = std::max(height >> first_level, uint32_t(1));
-  // Not below the game's own, and in whole blocks as D3D12 requires.
-  if (level_width < job.key.GetWidth() || level_height < job.key.GetHeight() ||
-      std::max(level_width, level_height) > kDaoPackMaxSide ||
-      level_width % 4 || level_height % 4) {
+  uint32_t level_width = std::max(dds.width >> first_level, uint32_t(1));
+  uint32_t level_height = std::max(dds.height >> first_level, uint32_t(1));
+  if (!dds.FirstLevelFits(job.max_size, job.key.GetWidth(),
+                          job.key.GetHeight())) {
     XELOGW("DAO texture pack: not using {} ({}x{} for the game's {}x{})", name,
            level_width, level_height, job.key.GetWidth(),
            job.key.GetHeight());
     return loaded;
   }
-  uint32_t level_count = mip_levels - first_level;
+  uint32_t level_count = dds.mip_levels - first_level;
+  size_t data_bytes = 0;
+  for (uint32_t level = first_level; level < dds.mip_levels; ++level) {
+    data_bytes += dds.LevelBytes(level);
+  }
+  std::vector<uint8_t> data(data_bytes);
+  file.seekg(std::streamoff(data_offset));
+  if (!file.read(reinterpret_cast<char*>(data.data()),
+                 std::streamsize(data_bytes))) {
+    XELOGW("DAO texture pack: couldn't read {}", name);
+    return loaded;
+  }
 
   ID3D12Device* device = command_processor_.GetD3D12Provider().GetDevice();
   D3D12_RESOURCE_DESC desc = {};
@@ -1784,7 +1759,7 @@ D3D12TextureCache::DaoPackLoaded D3D12TextureCache::DaoPackLoad(
     loaded.layouts.clear();
     return loaded;
   }
-  const uint8_t* source = dds.data() + data_offset;
+  const uint8_t* source = data.data();
   for (uint32_t level = 0; level < level_count; ++level) {
     size_t row_bytes = size_t(row_sizes[level]);
     for (UINT row = 0; row < row_counts[level]; ++row) {
@@ -1792,7 +1767,7 @@ D3D12TextureCache::DaoPackLoaded D3D12TextureCache::DaoPackLoad(
                       size_t(row) * loaded.layouts[level].Footprint.RowPitch,
                   source + size_t(row) * row_bytes, row_bytes);
     }
-    source += level_bytes(first_level + level);
+    source += dds.LevelBytes(first_level + level);
   }
   upload_buffer->Unmap(0, nullptr);
 
@@ -2536,7 +2511,7 @@ uint32_t D3D12TextureCache::FindOrCreateTextureDescriptor(
 
   uint32_t mip_levels = texture_key.mip_max_level + 1;
   // DAO texture packs: the pack's image has its own format and mips.
-  if (texture.dao_id()) {
+  if (texture.dao_shown()) {
     if (is_signed) {
       return UINT32_MAX;
     }

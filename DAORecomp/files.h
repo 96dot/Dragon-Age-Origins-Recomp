@@ -18,8 +18,8 @@ namespace dao
     // A folder, not a link or junction to one somewhere else.
     bool IsPlainFolder(const std::filesystem::path& path);
 
-    // Writes `data` to <path>.part and renames that over `path`, so `path` is never
-    // a partial file (if either fails, the old one stays). False if it fails, and
-    // then the .part is removed.
+    // Writes `data` to <path>.<process>-<thread>.part and renames that over `path`, so
+    // `path` is never a partial file (if either fails, the old one stays). False if it
+    // fails, and then the .part is removed.
     bool WriteFileAtomically(const std::filesystem::path& path, std::string_view data);
 }

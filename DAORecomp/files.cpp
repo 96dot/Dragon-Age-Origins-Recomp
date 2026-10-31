@@ -44,7 +44,9 @@ namespace dao
 
     bool WriteFileAtomically(const std::filesystem::path& path, std::string_view data)
     {
-        const std::filesystem::path part = std::filesystem::path(path).concat(L".part");
+        // (Of this thread: two writing the same file don't share one.)
+        const std::filesystem::path part = std::filesystem::path(path).concat(
+            L"." + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetCurrentThreadId()) + L".part");
         bool written = false;
         {
             std::ofstream out(part, std::ios::binary | std::ios::trunc);

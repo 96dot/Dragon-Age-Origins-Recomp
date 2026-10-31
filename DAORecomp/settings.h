@@ -29,6 +29,9 @@ namespace dao
     inline constexpr int kAnisotropicLevels[] = { 0, 2, 4, 8, 16 };
     // Settings::texturePackMaxSize values: 0 = any size.
     inline constexpr int kTexturePackMaxSizes[] = { 0, 1024, 2048, 4096, 8192 };
+    // Settings::texturePackMemory values the launcher offers (MB): 0 = automatic. Other
+    // values can be set in config.toml; the launcher shows them as they are.
+    inline constexpr int kTexturePackMemories[] = { 0, 512, 1024, 2048, 3072, 4096, 6144, 8192 };
     // The frame rates offered (0: unlimited). 30 is the game's own lock in its 3D
     // scenes; above 60 is experimental.
     inline constexpr int kFrameRates[] = { 30, 60, 90, 120, 144, 165, 240, 0 };
@@ -137,8 +140,7 @@ namespace dao
         int anisotropicFiltering = 0;
         // Texture packs (gpu/texture_pack.h): on, the largest width or height loaded
         // (one of kTexturePackMaxSizes; larger mips are left out), and the graphics
-        // memory they may take in MB (0: half the graphics card's own, at least 256 MB;
-        // only in config.toml).
+        // memory they may take in MB (0: half the graphics card's own, at least 256 MB).
         bool texturePacks = true;
         int texturePackMaxSize = 0;
         int texturePackMemory = 0;
