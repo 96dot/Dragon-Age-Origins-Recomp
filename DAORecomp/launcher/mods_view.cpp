@@ -285,8 +285,8 @@ namespace dao::launcher
                       "are sorted into place."
                     : "To add a mod, drop its folder or files on this window: its files are sorted into place.");
             ImGui::Spacing();
-            HelpText("Downloadable content and Title Update 6 or 7 copied from an Xbox 360 are installed the same way: "
-                     "drop the packages, or the folder holding them.");
+            HelpText("Downloadable content and title updates are installed the same way: drop the Ultimate Edition's "
+                     "second disc image, or the packages copied from an Xbox 360, or the folder holding them.");
             ImGui::Spacing();
             if (ReadingMods(st))
             {

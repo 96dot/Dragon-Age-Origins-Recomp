@@ -1,14 +1,19 @@
 #pragma once
-// Installing from the launcher: runs the installer (the Python build pipeline in
-// installer/, as an executable or a script) hidden, with --progress-json, and keeps
-// what it reports for the Install view.
+// Installing from the launcher: installs the DLC chosen (content/install.h), then runs
+// the installer (the Python build pipeline in installer/, as an executable or a
+// script) hidden, with --progress-json, and keeps what it reports for the Install view.
+
+#include "mods/mod_install.h"
 
 namespace dao::launcher
 {
     struct InstallRequest
     {
         std::filesystem::path iso;          // Empty to update an install whose game files are extracted.
-        std::filesystem::path titleUpdate;  // Optional.
+        // Optional: the DLC (and title update) to install first: the Ultimate Edition's
+        // second disc image, a folder of packages, or a package. A title update found
+        // there goes to the install's title_update/, and is built in.
+        std::filesystem::path dlc;
         std::filesystem::path dest;
         bool acceptLicense = false;
         bool shortcuts = false;
@@ -51,9 +56,13 @@ namespace dao::launcher
         static constexpr size_t kMaxLogLines = 400;
 
     private:
+        // Starts the installer for request_; false, with `error`, if it can't be.
+        bool StartInstaller(std::string& error);
         void Read();
         void Take(std::string_view line);
         void ReleaseEngine();
+        // Once the DLC are installed: the installer, or the DLC's error.
+        void FinishDlc();
 
         State state_ = State::Idle;
         std::string status_, error_;
@@ -74,6 +83,13 @@ namespace dao::launcher
         // The unpacked installer's files, open so others may only read them until it
         // has ended (they were checked before it started).
         std::vector<void*> engineLocks_;
+
+        InstallRequest request_;
+        // Installing the DLC (before the installer starts): its thread, and what it
+        // reports (under mutex_) once dlcDone_.
+        std::jthread dlc_;
+        bool dlcDone_ = false;
+        std::vector<mods::InstallResult::Line> dlcLines_;
     };
 
     // The installer's work folder, as installer/util.py has it (DAO_WORK_DIR, else

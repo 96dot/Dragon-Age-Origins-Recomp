@@ -66,7 +66,7 @@ namespace dao::content
             CloseHandle(m_file);
     }
 
-    bool StfsPackage::IsPackage(const fs::path& path)
+    bool StfsPackage::IsPackage(const fs::path& path, uint64_t offset)
     {
         const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
             FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -74,23 +74,34 @@ namespace dao::content
             return false;
         uint8_t magic[4] = {};
         DWORD read = 0;
-        const bool ok = ReadFile(file, magic, sizeof(magic), &read, nullptr) && read == sizeof(magic) && IsMagic(magic);
+        OVERLAPPED at{};
+        at.Offset = DWORD(offset);
+        at.OffsetHigh = DWORD(offset >> 32);
+        const bool ok = ReadFile(file, magic, sizeof(magic), &read, &at) && read == sizeof(magic) && IsMagic(magic);
         CloseHandle(file);
         return ok;
     }
 
-    std::unique_ptr<StfsPackage> StfsPackage::Open(const fs::path& path, std::string& error)
+    std::unique_ptr<StfsPackage> StfsPackage::Open(const fs::path& path, std::string& error, uint64_t offset,
+        uint64_t size)
     {
         std::unique_ptr<StfsPackage> package(new StfsPackage());
         package->m_file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
             FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-        LARGE_INTEGER size{};
-        if (package->m_file == INVALID_HANDLE_VALUE || !GetFileSizeEx(package->m_file, &size))
+        LARGE_INTEGER fileSize{};
+        if (package->m_file == INVALID_HANDLE_VALUE || !GetFileSizeEx(package->m_file, &fileSize))
         {
             error = "can't be read";
             return nullptr;
         }
-        package->m_size = uint64_t(size.QuadPart);
+        const uint64_t total = uint64_t(fileSize.QuadPart);
+        if (offset > total || size > total - offset)
+        {
+            error = "damaged (truncated)";
+            return nullptr;
+        }
+        package->m_offset = offset;
+        package->m_size = size ? size : total - offset;
         if (!package->ReadHeader(error) || !package->ReadTable(error))
             return nullptr;
         return package;
@@ -101,8 +112,8 @@ namespace dao::content
         if (offset + size > m_size)
             return false;
         OVERLAPPED at{};
-        at.Offset = DWORD(offset);
-        at.OffsetHigh = DWORD(offset >> 32);
+        at.Offset = DWORD(m_offset + offset);
+        at.OffsetHigh = DWORD((m_offset + offset) >> 32);
         DWORD read = 0;
         return ReadFile(m_file, buffer, DWORD(size), &read, &at) && read == size;
     }

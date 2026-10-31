@@ -5,7 +5,8 @@
 // size is checked first.
 //
 // scripts/stfs.py is the same reader in Python, for the installer (which runs
-// before any of this is built); keep the two in step.
+// before any of this is built); keep the two in step. (Only this one reads packages
+// inside a disc image.)
 
 #include <stop_token>
 
@@ -28,11 +29,14 @@ namespace dao::content
         StfsPackage(const StfsPackage&) = delete;
         StfsPackage& operator=(const StfsPackage&) = delete;
 
-        // Whether a file starts like a package (CON, LIVE or PIRS).
-        static bool IsPackage(const std::filesystem::path& path);
+        // Whether a file starts like a package (CON, LIVE or PIRS); `offset` is where
+        // in the file a package inside another (a disc image) starts.
+        static bool IsPackage(const std::filesystem::path& path, uint64_t offset = 0);
         // Opens a package and reads its file list; nullptr and why in `error` if
-        // it isn't one this can read, or is damaged.
-        static std::unique_ptr<StfsPackage> Open(const std::filesystem::path& path, std::string& error);
+        // it isn't one this can read, or is damaged. A package inside another file
+        // (a disc image) is the `size` bytes at `offset`; size 0 is the whole file.
+        static std::unique_ptr<StfsPackage> Open(const std::filesystem::path& path, std::string& error,
+            uint64_t offset = 0, uint64_t size = 0);
 
         uint32_t titleId = 0;
         uint32_t contentType = 0;
@@ -56,6 +60,8 @@ namespace dao::content
         bool ReadRun(uint32_t block, uint32_t count, uint8_t* buffer, size_t size, std::string& error);
 
         HANDLE m_file = INVALID_HANDLE_VALUE;
+        // Where the package is in the file, and its size.
+        uint64_t m_offset = 0;
         uint64_t m_size = 0;
         uint64_t m_base = 0;
         uint32_t m_tableBlocks = 0;

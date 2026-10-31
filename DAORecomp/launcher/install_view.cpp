@@ -14,11 +14,12 @@ namespace dao::launcher
         // The licence of the Microsoft build tools (CRT and Windows SDK) that building
         // the game downloads (installer/deps.py MSVC_LICENSE_URL).
         constexpr const char* kMsvcLicenseUrl = "https://go.microsoft.com/fwlink/?LinkId=2086102";
+        constexpr const char* kNoDlcPopup = "Installing without DLC";
 
         std::string& FieldText(State& st, PathField field)
         {
             return field == PathField::DiscImage ? st.installIso
-                : field == PathField::TitleUpdate ? st.installUpdate
+                : field == PathField::Dlc ? st.installDlc
                 : field == PathField::NeuralWeights ? st.settings.neuralWeights
                 : st.installDest;
         }
@@ -34,11 +35,14 @@ namespace dao::launcher
         // dialog thread, into st.dialogs, which the next frame takes it from. For the
         // weights, it's their folder in lmxxf's package (or the package itself), found
         // on that thread: a large folder takes a while (Browse stays off meanwhile).
-        void Browse(State& st, PathField field)
+        // The DLC's field takes a file or, with `folder`, a folder.
+        void Browse(State& st, PathField field, bool folder = false)
         {
             static const SDL_DialogFileFilter kDiscImage[] = { { "Xbox 360 disc image", "iso" },
                 { "All files", "*" } };
             static const SDL_DialogFileFilter kAnyFile[] = { { "All files", "*" } };
+            // (DLC packages have no extension: all files first.)
+            static const SDL_DialogFileFilter kDlc[] = { { "All files", "*" }, { "Xbox 360 disc image", "iso" } };
             auto* request = new DialogRequest{ st.dialogs, field, FieldText(st, field) };
             {
                 std::lock_guard lock(st.dialogs->mutex);
@@ -58,10 +62,12 @@ namespace dao::launcher
                 request->results->open--;
             };
             const char* start = request->start.empty() ? nullptr : request->start.c_str();
-            if (field == PathField::Folder || field == PathField::NeuralWeights)
+            if (field == PathField::Folder || field == PathField::NeuralWeights || folder)
                 SDL_ShowOpenFolderDialog(chosen, request, st.window, start, false);
             else if (field == PathField::DiscImage)
                 SDL_ShowOpenFileDialog(chosen, request, st.window, kDiscImage, 2, start, false);
+            else if (field == PathField::Dlc)
+                SDL_ShowOpenFileDialog(chosen, request, st.window, kDlc, 2, start, false);
             else
                 SDL_ShowOpenFileDialog(chosen, request, st.window, kAnyFile, 1, start, false);
         }
@@ -75,15 +81,19 @@ namespace dao::launcher
         st.dialogs->chosen.clear();
     }
 
-    // A path: typed, pasted, or chosen with Browse.
+    // A path: typed, pasted, or chosen with Browse (the DLC's: a file or a folder).
     void PathRow(State& st, const char* label, PathField field, bool enabled)
     {
         Label(label);
         ImGui::PushID(int(field));
         const ImGuiStyle& style = ImGui::GetStyle();
-        const float button = ImGui::CalcTextSize("Browse...").x + style.FramePadding.x * 2.0f;
+        const bool dlc = field == PathField::Dlc;
+        const char* browse = dlc ? "File..." : "Browse...";
+        float buttons = ImGui::CalcTextSize(browse).x + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
+        if (dlc)
+            buttons += ImGui::CalcTextSize("Folder...").x + style.FramePadding.x * 2.0f + style.ItemSpacing.x;
         ImGui::BeginDisabled(!enabled);
-        ImGui::SetNextItemWidth(RowWidth() - button - style.ItemSpacing.x);
+        ImGui::SetNextItemWidth(RowWidth() - buttons);
         ImGui::InputText("##path", &FieldText(st, field));
         ImGui::SameLine();
         bool dialogOpen = false;
@@ -92,25 +102,39 @@ namespace dao::launcher
             dialogOpen = st.dialogs->open > 0;
         }
         ImGui::BeginDisabled(dialogOpen);
-        if (ImGui::Button("Browse..."))
+        if (ImGui::Button(browse))
             Browse(st, field);
+        if (dlc)
+        {
+            ImGui::SameLine();
+            if (ImGui::Button("Folder..."))
+                Browse(st, field, true);
+        }
         ImGui::EndDisabled();
         ImGui::EndDisabled();
         ImGui::PopID();
     }
 
-    // Files dropped on the Install view: a disc image (.iso), or else the title
-    // update's package.
+    // Files dropped on the Install view: the game's disc image (an .iso with the game's
+    // files), or else the DLC (the Ultimate Edition's second disc image, packages, or
+    // a folder of them).
     void TakeDroppedInstallFiles(State& st)
     {
+        std::vector<fs::path> dlc;
         for (const fs::path& path : st.dropped)
         {
             std::error_code ec;
-            if (!fs::is_regular_file(path, ec))
-                continue;
-            FieldText(st, Lower(Utf8(path.extension())) == ".iso" ? PathField::DiscImage
-                                                                   : PathField::TitleUpdate) = Utf8(path);
+            if (fs::is_regular_file(path, ec) && Lower(Utf8(path.extension())) == ".iso" &&
+                content::IsoHasFile(path, kArtArchive))
+                st.installIso = Utf8(path);
+            else if (fs::exists(path, ec))
+                dlc.push_back(path);
         }
+        // Several (DLC files dragged together): the folder they're in.
+        if (dlc.size() == 1)
+            st.installDlc = Utf8(dlc.front());
+        else if (!dlc.empty())
+            st.installDlc = Utf8(dlc.front().parent_path());
         st.dropped.clear();
     }
 
@@ -138,7 +162,7 @@ namespace dao::launcher
         InstallRequest request;
         if (!HasGameFiles(st))
             request.iso = FromUtf8(st.installIso);
-        request.titleUpdate = FromUtf8(st.installUpdate);
+        request.dlc = FromUtf8(st.installDlc);
         request.dest = FromUtf8(st.installDest);
         request.acceptLicense = st.installAccept;
         request.shortcuts = st.installShortcuts;
@@ -231,6 +255,49 @@ namespace dao::launcher
                 installer.Cancel();
         }
 
+        // Asked before installing without DLC: how to add them later, read and ticked.
+        void NoDlcPopup(State& st)
+        {
+            if (!BeginDialog(st, kNoDlcPopup))
+                return;
+            bool close = false;
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextUnformatted("No downloadable content (DLC) is chosen. That's fine: you can add it any time "
+                                   "after installing.");
+            ImGui::Spacing();
+            ImGui::TextUnformatted("To add it later:");
+            ImGui::TextUnformatted("1. Start the game's launcher and open Downloadable Content.");
+            ImGui::TextUnformatted("2. Drag the DLC onto the launcher's window: the Ultimate Edition's second disc "
+                                   "image (.iso) as it is, with nothing to extract, or the DLC files copied from an "
+                                   "Xbox 360, or the folder holding them.");
+            ImGui::TextUnformatted("3. If a title update was added (Awakening and the DLC campaigns need it; the "
+                                   "Ultimate Edition's second disc has it), run this installer again (DAORecomp.exe "
+                                   "from the release page) and choose the same install folder. It builds the game "
+                                   "again once, which takes as long as this install.");
+            ImGui::Spacing();
+            ImGui::TextUnformatted("Or go back and choose the DLC now, and it's all done in one go.");
+            ImGui::PopTextWrapPos();
+            ImGui::Spacing();
+            ImGui::Checkbox("I understand", &st.installUnderstood);
+            ImGui::Spacing();
+            ImGui::BeginDisabled(!st.installUnderstood);
+            if (ImGui::Button("Install without DLC"))
+            {
+                StartInstall(st);
+                close = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Go back") || CancelPressed())
+                close = true;
+            // Go back is the default.
+            if (ImGui::IsWindowAppearing())
+                ImGui::SetKeyboardFocusHere(-1);
+            if (close)
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+
         void InstallContents(State& st)
         {
             TakeDialogChoices(st);
@@ -250,9 +317,11 @@ namespace dao::launcher
                               "and its code is recompiled for this PC: nothing of the game is downloaded. You can "
                               "also drop it on this window.");
             ImGui::Spacing();
-            PathRow(st, "Title Update 6 or 7 (optional)", PathField::TitleUpdate);
-            HelpText("Needed by Awakening and the DLC campaigns: its package (tu00000001_00000000). It can also be "
-                     "added later, by dropping it on the launcher.");
+            PathRow(st, "Downloadable content and title update (optional)", PathField::Dlc);
+            HelpText("The Ultimate Edition's second disc image (.iso), as it is: nothing to extract. Or the DLC and "
+                     "title update files copied from an Xbox 360, or the folder holding them. The DLC are installed "
+                     "first, and the title update (needed by Awakening and the DLC campaigns) is built into the "
+                     "game. You can also drop them on this window.");
 
             Section("Install");
             PathRow(st, "Folder", PathField::Folder);
@@ -288,8 +357,15 @@ namespace dao::launcher
                 (st.installAccept || update);
             ImGui::BeginDisabled(!ready);
             if (ImGui::Button(state == InstallRunner::State::Failed ? "Try again" : update ? "Update" : "Install"))
-                StartInstall(st);
+            {
+                // A first install without DLC says how to add them later, until that's ticked.
+                if (!update && st.installDlc.empty() && !st.installUnderstood)
+                    ImGui::OpenPopup(kNoDlcPopup);
+                else
+                    StartInstall(st);
+            }
             ImGui::EndDisabled();
+            NoDlcPopup(st);
             if (state == InstallRunner::State::Failed && !st.installer.Log().empty())
             {
                 ImGui::Spacing();

@@ -112,7 +112,8 @@ namespace dao::launcher
             else if (update.number)
             {
                 const std::string text = fmt::format("Title Update {} is installed, but the game was built "
-                                                     "without it: run the installer again on this folder to use it.",
+                                                     "without it: run the installer (DAORecomp.exe from the release "
+                                                     "page) again on this folder to use it.",
                     update.number);
                 ColoredText(kWarning, text.c_str());
             }
@@ -166,14 +167,16 @@ namespace dao::launcher
             DlcSection(st);
 
             Section("Adding more");
-            HelpText("DLC and title updates come from an Xbox 360: copy their packages from the console's drive "
-                     "(or your backup of them) and drop the packages, or the folder holding them, on this window. "
-                     "On the console, DLC are in Content/0000000000000000/454108C0/00000002/ and the title update "
-                     "in .../000B0000/. They're checked, then installed where the game finds them; the packages "
-                     "are left as they are. (Mods dropped here are added too, to the Mods page.)");
+            HelpText("Drop the DLC on this window: the Ultimate Edition's second disc image (.iso) as it is, with "
+                     "nothing to extract, or the packages copied from an Xbox 360's drive (or your backup of "
+                     "them), or the folder holding them. On the console, DLC are in "
+                     "Content/0000000000000000/454108C0/00000002/ and the title update in .../000B0000/. They're "
+                     "checked, then installed where the game finds them; what you drop is left as it is. (Mods "
+                     "dropped here are added too, to the Mods page.)");
             HelpText("Only packages as Xbox Live delivers them (LIVE or PIRS) are read. The title update has to be "
-                     "the one for the English, Italian and Spanish disc (media ID 186A1115); Title Update 7 replaces 6. The installer "
-                     "can take it too (Title Update 6 or 7).");
+                     "the one for the English, Italian and Spanish disc (media ID 186A1115); Title Update 7 replaces "
+                     "6. The installer (DAORecomp.exe from the release page) can take them too, and then builds the title update in "
+                     "at once.");
             ImGui::Spacing();
             if (AddingMods(st))
                 ImGui::TextUnformatted("Adding...");

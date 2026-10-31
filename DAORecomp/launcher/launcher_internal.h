@@ -199,7 +199,7 @@ namespace dao::launcher
     enum class PathField
     {
         DiscImage,
-        TitleUpdate,
+        Dlc,
         Folder,
         NeuralWeights,
     };
@@ -283,8 +283,10 @@ namespace dao::launcher
         bool setupOnly = false;
         SDL_Window* window = nullptr;
         // The Install view's choices (UTF-8 paths), and the installer.
-        std::string installIso, installUpdate, installDest;
+        std::string installIso, installDlc, installDest;
         bool installAccept = false;
+        // Ticked in the popup shown when installing without DLC.
+        bool installUnderstood = false;
         bool installShortcuts = true;
         std::string installStartError;
         InstallRunner installer;

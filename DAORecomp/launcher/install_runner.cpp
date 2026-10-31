@@ -5,6 +5,7 @@
 
 #include <rapidjson/document.h>
 
+#include "content/install.h"
 #include "hash.h"
 #include "program.h"
 #include "text.h"
@@ -426,6 +427,8 @@ namespace dao::launcher
             return false;
         if (reader_.joinable())
             reader_.join();
+        if (dlc_.joinable())
+            dlc_.join();
         Close(output_);
         Close(process_);
         Close(job_);
@@ -437,9 +440,88 @@ namespace dao::launcher
         installed_.clear();
         pending_.clear();
         ended_ = false;
+        dlcDone_ = false;
+        dlcLines_.clear();
 
+        request_ = request;
+        // Absolute: the installer runs in the work folder, and the DLC go here first.
+        std::error_code ec;
+        if (!request.dest.empty())
+            request_.dest = fs::absolute(request.dest, ec);
+        if (request.dlc.empty())
+            return StartInstaller(error);
+
+        // The DLC first, on a thread of its own (a whole disc's worth takes a while);
+        // Poll starts the installer once it's done.
+        status_ = "Installing the downloadable content";
+        log_.push_back("== " + status_);
+        state_ = State::Running;
+        dlc_ = std::jthread([this, source = request_.dlc, dest = request_.dest](std::stop_token stop) {
+            std::vector<mods::InstallResult::Line> lines;
+            try
+            {
+                std::error_code ec;
+                std::vector<fs::path> dropped = { source };
+                if (!fs::exists(source, ec))
+                    lines.push_back({ fmt::format("{} isn't there.", Utf8(source)), true });
+                else if (const auto packages = content::TakePackages(dropped); packages.empty())
+                {
+                    lines.push_back({ fmt::format("There's no downloadable content or title update for Dragon Age: "
+                                                  "Origins in {}.", Utf8(source)), true });
+                }
+                else
+                {
+                    // A title update goes to <dest>/title_update, which the installer builds in.
+                    content::InstallPackages(dest / "game", dest / "userdata", packages, stop, lines, true);
+                }
+            }
+            catch (const std::exception& error)
+            {
+                LOGE("Install: installing the downloadable content failed: {}", error.what());
+                lines.push_back({ "Can't install the downloadable content: something went wrong (see setup.log).",
+                    true });
+            }
+            std::lock_guard lock(mutex_);
+            dlcLines_ = std::move(lines);
+            dlcDone_ = true;
+        });
+        return true;
+    }
+
+    void InstallRunner::FinishDlc()
+    {
+        dlc_.join();
+        bool failed = false;
+        for (const auto& [text, problem] : dlcLines_)
+        {
+            log_.push_back(text);
+            LOGI("Install: {}", text);
+            if (problem && error_.empty())
+                error_ = text;
+            failed |= problem;
+        }
+        if (failed)
+        {
+            state_ = State::Failed;
+            error_ += " The game wasn't installed: fix the problem above, or empty the Downloadable content and "
+                      "title update field to install without it.";
+            LOGW("Install: failed: {}", error_);
+            return;
+        }
+        std::string error;
+        if (!StartInstaller(error))
+        {
+            state_ = State::Failed;
+            error_ = error;
+            LOGW("Install: failed: {}", error_);
+        }
+    }
+
+    bool InstallRunner::StartInstaller(std::string& error)
+    {
+        const InstallRequest& request = request_;
         // A quote in a path would end its argument early (no Windows path has one).
-        for (const fs::path* path : { &request.dest, &request.iso, &request.titleUpdate })
+        for (const fs::path* path : { &request.dest, &request.iso })
         {
             if (path->native().find(L'"') != std::wstring::npos)
             {
@@ -456,8 +538,6 @@ namespace dao::launcher
         command += L" --progress-json --dest " + QuoteArgument(request.dest);
         if (!request.iso.empty())
             command += L" --iso " + QuoteArgument(request.iso);
-        if (!request.titleUpdate.empty())
-            command += L" --title-update " + QuoteArgument(request.titleUpdate);
         if (request.acceptLicense)
             command += L" --accept-msvc-license";
         if (request.shortcuts)
@@ -590,6 +670,17 @@ namespace dao::launcher
     {
         if (state_ != State::Running)
             return;
+        if (dlc_.joinable())
+        {
+            bool done = false;
+            {
+                std::lock_guard lock(mutex_);
+                done = dlcDone_;
+            }
+            if (done)
+                FinishDlc();
+            return;
+        }
         std::vector<std::string> lines;
         bool ended = false;
         DWORD code = 0;
@@ -620,7 +711,13 @@ namespace dao::launcher
     {
         if (state_ != State::Running)
             return;
-        TerminateJobObject(job_, 1);
+        if (dlc_.joinable())
+        {
+            dlc_.request_stop();
+            dlc_.join();
+        }
+        if (job_)
+            TerminateJobObject(job_, 1);
         if (reader_.joinable())
             reader_.join();
         ReleaseEngine();

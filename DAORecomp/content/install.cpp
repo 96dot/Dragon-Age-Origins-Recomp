@@ -2,6 +2,7 @@
 #include "content/install.h"
 #include "content/content.h"
 #include "content/stfs.h"
+#include "content/xiso.h"
 #include "kernel/title_update.h"
 #include "text.h"
 
@@ -17,18 +18,53 @@ namespace dao::content
         // The disc this is recompiled from (installer/deps.py GAME_MEDIA_ID): title
         // updates are made for one disc (other languages' discs have their own).
         constexpr uint32_t kMediaId = 0x186A1115;
-        // A folder dropped is searched this deep, and this far, for packages.
+        // A folder or disc image dropped is searched this deep, and this far, for packages.
         constexpr int kSearchDepth = 8;
         constexpr size_t kSearchEntries = 20000;
 
         using Line = mods::InstallResult::Line;
 
         // Package files have no extension on the console; copies may have one of these.
-        bool MayBePackage(const fs::path& path)
+        bool MayBePackage(std::string_view name)
         {
-            const std::string extension = Lower(Utf8(path.extension()));
+            const size_t dot = name.rfind('.');
+            const std::string extension = dot == name.npos || dot == 0 ? std::string() : Lower(name.substr(dot));
             return extension.empty() || extension == ".bin" || extension == ".pkg" || extension == ".stfs" ||
                    extension == ".con" || extension == ".live" || extension == ".pirs";
+        }
+
+        // The packages on a disc image (the Ultimate Edition's second disc has the DLC
+        // and the title updates), read where they are.
+        std::vector<DroppedPackage> IsoPackages(const fs::path& iso)
+        {
+            std::vector<IsoFile> files;
+            std::string error;
+            std::error_code ec;
+            const uint64_t imageSize = fs::file_size(iso, ec);
+            if (ec || !ListIsoFiles(iso, kSearchDepth, kSearchEntries, files, error))
+                return {};
+            // In the order they're on the disc: one sharing another's bytes is passed over
+            // (a damaged or made-up image, which could list the same bytes many times).
+            std::ranges::sort(files, {}, &IsoFile::offset);
+            std::vector<DroppedPackage> found;
+            uint64_t end = 0;
+            for (const IsoFile& file : files)
+            {
+                // (The disc's names are only looked at, never used as paths.)
+                const std::string_view path(file.path);
+                if (!MayBePackage(path.substr(path.rfind('/') + 1)))
+                    continue;
+                if (!file.size || file.offset < end)
+                    continue;
+                // One cut off (a download that didn't finish) is reported, as a file dropped
+                // on its own is: opening it says it's truncated.
+                const bool cutOff = file.offset + file.size > imageSize;
+                if (!cutOff && !StfsPackage::IsPackage(iso, file.offset))
+                    continue;
+                found.push_back({ iso, !cutOff, file.offset, file.size });
+                end = file.offset + file.size;
+            }
+            return found;
         }
 
         // The package's name for messages and the log (without control characters:
@@ -190,7 +226,7 @@ namespace dao::content
         }
 
         void InstallTitleUpdate(const fs::path& gameRoot, StfsPackage& package, std::stop_token stop,
-            std::vector<Line>& lines)
+            std::vector<Line>& lines, bool building)
         {
             const fs::path update = kernel::UpdateRoot(gameRoot);
             std::error_code ec;
@@ -257,12 +293,18 @@ namespace dao::content
             }
             RemoveFolder(old, ec);
             LOGI("Content: installed Title Update {} to {}", number, Utf8(update));
+            if (building)
+            {
+                lines.push_back({ fmt::format("Installed Title Update {}: it's built into the game.", number) });
+                return;
+            }
 #if DAO_HAS_TU6
             lines.push_back({ fmt::format("Installed Title Update {}: Awakening and the DLC campaigns can be played.",
                 number) });
 #else
             lines.push_back({ fmt::format("Installed Title Update {}. The game needs building again to use it: run "
-                                          "the installer and choose this install folder.", number), true });
+                                          "the installer (DAORecomp.exe from the release page) and choose this "
+                                          "install folder.", number), true });
 #endif
         }
     }
@@ -274,10 +316,16 @@ namespace dao::content
         std::erase_if(dropped, [&](const fs::path& path) {
             if (fs::is_regular_file(path, ec))
             {
-                if (!StfsPackage::IsPackage(path))
+                if (StfsPackage::IsPackage(path))
+                {
+                    packages.push_back({ path });
+                    return true;
+                }
+                if (Lower(Utf8(path.extension())) != ".iso")
                     return false;
-                packages.push_back({ path });
-                return true;
+                const std::vector<DroppedPackage> found = IsoPackages(path);
+                packages.insert(packages.end(), found.begin(), found.end());
+                return !found.empty();
             }
             if (!fs::is_directory(path, ec))
                 return false;
@@ -290,7 +338,8 @@ namespace dao::content
                     break;
                 if (it.depth() >= kSearchDepth)
                     it.disable_recursion_pending();
-                if (it->is_regular_file(ec) && MayBePackage(it->path()) && StfsPackage::IsPackage(it->path()))
+                if (it->is_regular_file(ec) && MayBePackage(Utf8(it->path().filename())) &&
+                    StfsPackage::IsPackage(it->path()))
                     found.push_back({ it->path(), true });
             }
             if (found.empty())
@@ -302,25 +351,31 @@ namespace dao::content
     }
 
     void InstallPackages(const fs::path& gameRoot, const fs::path& userRoot,
-        const std::vector<DroppedPackage>& packages, std::stop_token stop, std::vector<Line>& lines)
+        const std::vector<DroppedPackage>& packages, std::stop_token stop, std::vector<Line>& lines, bool building)
     {
         std::unordered_set<std::string> done;
         // A title update for another disc is only mentioned if this disc's isn't there too.
         std::vector<std::string> otherDiscs;
         bool updateFound = false;
         const size_t linesBefore = lines.size();
-        for (const auto& [path, inFolder] : packages)
+        for (const auto& [path, inFolder, offset, size] : packages)
         {
             if (stop.stop_requested())
                 return;
-            // Packages found in a folder that aren't this game's DLC are passed over
+            // Packages found in a folder or disc image that aren't this game's DLC are passed over
             // (a console's folders also hold saves, the dashboard's art, ...).
             std::string error;
-            auto package = StfsPackage::Open(path, error);
+            auto package = StfsPackage::Open(path, error, offset, size);
             const std::string file = Utf8(path.filename());
             if (!package)
             {
-                if (!inFolder)
+                // (One on a disc image is only given here when it's cut off.)
+                if (!inFolder && size)
+                {
+                    lines.push_back({ fmt::format("{} is incomplete: it ends before its last files (copy or download "
+                                                  "it again).", file), true });
+                }
+                else if (!inFolder)
                     lines.push_back({ fmt::format("{}: {}.", file, error), true });
                 continue;
             }
@@ -345,7 +400,7 @@ namespace dao::content
                     continue;
                 }
                 updateFound = true;
-                InstallTitleUpdate(gameRoot, *package, stop, lines);
+                InstallTitleUpdate(gameRoot, *package, stop, lines, building);
             }
             else if (!inFolder)
             {

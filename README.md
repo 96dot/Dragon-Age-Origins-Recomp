@@ -35,7 +35,8 @@ x86-64 Windows program, with a Direct3D 12 renderer based on Xenia's. It adds:
   game, or F7): the developers' own debug scripts, still in the game, for immortality,
   skill checks, gold, experience and more
 - an on-screen keyboard for naming characters, usable with a gamepad
-- the downloadable content (Awakening and the rest), installed from your own packages
+- the downloadable content (Awakening and the rest), installed from the Ultimate Edition's
+  second disc or your own packages
 - the game's text in English, Italian or Spanish (the languages on the disc; the voices
   are English in each), chosen in the launcher
 
@@ -75,7 +76,8 @@ You need:
 
 Download **DAORecomp.exe** from the releases and run it: it opens on its Install page,
 drawn like the launcher (with the title screen from your disc once you pick it). Pick the
-ISO and an install folder, accept the build tools license, and press **Install**.
+ISO, your downloadable content if you have it (see below), and an install folder, accept
+the build tools license, and press **Install**.
 Nothing else needs to be installed first: it downloads what it needs (including a
 portable git if you have none). It builds the game into the install folder as a new
 `DAORecomp.exe`, which then opens as the launcher: **Play** starts the game. It can also
@@ -99,10 +101,10 @@ Windows may warn about `DAORecomp.exe` because it isn't code-signed (*More info*
 *Awakening*, *Leliana's Song*, *The Darkspawn Chronicles*, *The Golems of Amgarrak* and
 *Witch Hunt* also need the game's Title Update 6 or 7 (the other DLC work without it).
 
-**1. Find the files.**
+Where they are:
 
-- **Ultimate Edition:** everything is on disc 2, including Title Update 6. Extract the
-  disc image to a folder; you'll drop that whole folder in step 2.
+- **Ultimate Edition:** everything is on disc 2, including Title Update 6. Use its disc
+  image as it is: there's nothing to extract.
 - **From a console:** copy the DLC from the hard drive's
   `Content\0000000000000000\454108C0\00000002\` folder, and the title update from
   `Content\0000000000000000\454108C0\000B0000\`.
@@ -111,12 +113,20 @@ Each DLC is one file with a long name of letters and numbers and no extension, f
 example `35F2AA65A0CDDB099F21E3280F7CE1054B5E08024` (that one is *Leliana's Song*). That
 is normal; don't rename the files or add an extension.
 
-**2. Install them.** Open the launcher, go to *Downloadable Content*, and drag the files,
-or the folder holding them, onto the window. It shows each one as it's installed.
+**When installing (easiest):** in the installer, choose them under *Downloadable content
+and title update*: disc 2's image, or the files copied from a console (*File...*), or the
+folder holding them (*Folder...*). You can also drop them on its window. The DLC are
+installed first, and the title update is built into the game, so there's nothing left
+to do. Installing without them, the installer first shows how to add them later.
 
-**3. If you added a title update for the first time,** run the installer again on the
-same install folder. The game is rebuilt once for the update, which takes about as long
-as the first build. Going from 6 to 7 later doesn't need this.
+**Later:**
+
+1. Open the launcher, go to *Downloadable Content*, and drag disc 2's image, or the
+   files, or the folder holding them, onto the window. It shows each one as it's
+   installed.
+2. If you added a title update for the first time, run the installer (`DAORecomp.exe`
+   from the release page) again on the same install folder. The game is rebuilt once for the update, which takes about as long
+   as the first build. Going from 6 to 7 later doesn't need this.
 
 *Downloadable Content* then lists what's installed and whether the game can use it.
 
@@ -126,8 +136,8 @@ Details:
   186A1115); on Ultimate disc 2 that is `ESI\tu00000001_00000000`. The copies for the
   French and German editions are passed over. 7, the last update, adds fixes to 6's in
   its data files, and replaces 6 when dropped.
-- The title update can also be given to the installer instead: *Title Update 6 or 7
-  (optional)* in the window, or `--title-update <package>`. It is extracted to
+- Given to the installer (in its window, or `--title-update <package>` on the command
+  line, which takes the title update's package only), the title update is extracted to
   `title_update/` in the install folder, and the game's code is translated a second time
   from the updated executable. The program then holds both versions and runs the
   updated one while `title_update/` is there; at start, `title_update/default.xexp` is
@@ -463,7 +473,8 @@ are tested, and the traps found so far. The build details are below.
     read, Save Backups, Downloadable Content) as `launcher_0.bmp` to `launcher_7.bmp`, and
     the Update page as `launcher_8.bmp` when the update check finds a release, then quits.
   - `DAO_LAUNCHER_DROP=<path>|<path>...`: with `DAO_LAUNCHER_SCREENSHOTS`, adds those
-    as if dropped on the window (tests adding mods and installing packages).
+    as if dropped on the window (tests adding mods and installing packages, and in setup
+    its disc image and DLC fields).
   - `DAO_LAUNCHER_PAD=<steps>`: with `DAO_LAUNCHER_SCREENSHOTS`, a virtual DualSense
     follows these steps (separated by spaces), 12 frames each, instead of the views'
     screenshots, then quits: a button pressed (`a b x y lb rb start up down left right`)

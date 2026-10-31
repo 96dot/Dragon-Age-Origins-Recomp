@@ -3,6 +3,7 @@
 
 #include <fstream>
 #include <ranges>
+#include <unordered_set>
 
 #include "files.h"
 #include "text.h"
@@ -17,8 +18,10 @@ namespace dao::content
         constexpr std::string_view kMagic = "MICROSOFT*XBOX*MEDIA";
         // Where the game partition starts: plain XDVDFS, XGD1, XGD2, XGD3.
         constexpr uint64_t kPartitionOffsets[] = { 0x0, 0x18300000, 0xFD90000, 0x2080000 };
-        // A directory's table is a few KB; anything far larger isn't one.
+        // A directory's table is a few KB; anything far larger isn't one. Listing a disc
+        // reads at most kMaxListed of them in all (a real disc's are well under 1 MB).
         constexpr uint32_t kMaxTableSize = 16 << 20;
+        constexpr uint64_t kMaxListed = 64 << 20;
         constexpr uint8_t kDirectory = 0x10;
         // An entry: left and right subtree (in 4-byte units), sector, size, attributes,
         // name length, then the name.
@@ -44,18 +47,51 @@ namespace dao::content
             return in.seekg(std::streamoff(offset)) && in.read(static_cast<char*>(data), std::streamsize(size));
         }
 
-        // Finds `name` (any case) in the directory table at `dir`, visiting its binary
-        // tree once per entry.
-        std::optional<Entry> Find(std::ifstream& in, uint64_t base, const Entry& dir, std::string_view name)
+        // An open disc image: where its game partition starts, and its root folder.
+        struct Image
+        {
+            std::ifstream in;
+            uint64_t base = 0;
+            Entry root;
+        };
+
+        bool OpenImage(const fs::path& iso, Image& image, std::string& error)
+        {
+            image.in.open(iso, std::ios::binary);
+            if (!image.in)
+            {
+                error = "can't open the disc image";
+                return false;
+            }
+            for (const uint64_t offset : kPartitionOffsets)
+            {
+                char magic[kMagic.size()];
+                uint8_t root[8];
+                if (ReadAt(image.in, offset + 32 * kSector, magic, sizeof(magic)) &&
+                    std::string_view(magic, sizeof(magic)) == kMagic &&
+                    ReadAt(image.in, offset + 32 * kSector + kMagic.size(), root, sizeof(root)))
+                {
+                    image.base = offset;
+                    image.root = { ReadLe<uint32_t>(root), ReadLe<uint32_t>(root + 4), true };
+                    return true;
+                }
+            }
+            error = "not an Xbox 360 disc image";
+            return false;
+        }
+
+        // Calls visit(name, entry) for each entry of the directory table at `dir`,
+        // visiting its binary tree once per entry, until visit returns false.
+        template <typename Visit>
+        void ForEachEntry(Image& image, const Entry& dir, Visit&& visit)
         {
             if (!dir.directory || dir.size == 0 || dir.size > kMaxTableSize)
-                return std::nullopt;
+                return;
             std::vector<uint8_t> table(dir.size);
-            if (!ReadAt(in, base + dir.sector * kSector, table.data(), table.size()))
-                return std::nullopt;
+            if (!ReadAt(image.in, image.base + dir.sector * kSector, table.data(), table.size()))
+                return;
             std::vector<bool> seen(table.size() / 4 + 1);
             std::vector<uint32_t> stack = { 0 };
-            const std::string wanted = Lower(name);
             while (!stack.empty())
             {
                 const uint32_t offset = stack.back();
@@ -71,54 +107,48 @@ namespace dao::content
                 const size_t nameLength = p[13];
                 if (offset + kEntryHeader + nameLength > table.size())
                     continue;
-                const std::string_view entryName(reinterpret_cast<const char*>(p + kEntryHeader), nameLength);
-                if (Lower(entryName) == wanted)
-                    return Entry{ sector, ReadLe<uint32_t>(p + 8), (p[12] & kDirectory) != 0 };
+                const std::string_view name(reinterpret_cast<const char*>(p + kEntryHeader), nameLength);
+                if (!visit(name, Entry{ sector, ReadLe<uint32_t>(p + 8), (p[12] & kDirectory) != 0 }))
+                    return;
                 if (left && left != 0xFFFF)
                     stack.push_back(uint32_t(left) * 4);
                 if (right && right != 0xFFFF)
                     stack.push_back(uint32_t(right) * 4);
             }
-            return std::nullopt;
+        }
+
+        // The entry at `path` ('/'-separated, any case).
+        std::optional<Entry> Find(Image& image, std::string_view path)
+        {
+            std::optional<Entry> entry = image.root;
+            for (const auto part : std::views::split(path, '/'))
+            {
+                const std::string wanted = Lower(std::string_view(part.begin(), part.end()));
+                std::optional<Entry> found;
+                ForEachEntry(image, *entry, [&](std::string_view name, const Entry& child) {
+                    if (Lower(name) == wanted)
+                        found = child;
+                    return !found;
+                });
+                if (!found)
+                    return std::nullopt;
+                entry = found;
+            }
+            return entry;
         }
     }
 
     bool ExtractIsoFile(const fs::path& iso, std::string_view path, const fs::path& out, uint64_t maxSize,
         std::string& error)
     {
-        std::ifstream in(iso, std::ios::binary);
-        if (!in)
-        {
-            error = "can't open the disc image";
+        Image image;
+        if (!OpenImage(iso, image, error))
             return false;
-        }
-        std::optional<uint64_t> base;
-        for (const uint64_t offset : kPartitionOffsets)
+        const std::optional<Entry> entry = Find(image, path);
+        if (!entry)
         {
-            char magic[kMagic.size()];
-            if (ReadAt(in, offset + 32 * kSector, magic, sizeof(magic)) &&
-                std::string_view(magic, sizeof(magic)) == kMagic)
-            {
-                base = offset;
-                break;
-            }
-        }
-        uint8_t root[8];
-        if (!base || !ReadAt(in, *base + 32 * kSector + kMagic.size(), root, sizeof(root)))
-        {
-            error = "not an Xbox 360 disc image";
+            error = fmt::format("{} isn't on the disc image", path);
             return false;
-        }
-
-        std::optional<Entry> entry = Entry{ ReadLe<uint32_t>(root), ReadLe<uint32_t>(root + 4), true };
-        for (const auto part : std::views::split(path, '/'))
-        {
-            entry = Find(in, *base, *entry, std::string_view(part.begin(), part.end()));
-            if (!entry)
-            {
-                error = fmt::format("{} isn't on the disc image", path);
-                return false;
-            }
         }
         if (entry->directory || entry->size > maxSize)
         {
@@ -127,11 +157,58 @@ namespace dao::content
         }
 
         std::vector<char> data(entry->size);
-        if (!ReadAt(in, *base + entry->sector * kSector, data.data(), data.size()) ||
+        if (!ReadAt(image.in, image.base + entry->sector * kSector, data.data(), data.size()) ||
             !WriteFileAtomically(out, std::string_view(data.data(), data.size())))
         {
             error = fmt::format("can't copy {} out of the disc image", path);
             return false;
+        }
+        return true;
+    }
+
+    bool IsoHasFile(const fs::path& iso, std::string_view path)
+    {
+        Image image;
+        std::string error;
+        if (!OpenImage(iso, image, error))
+            return false;
+        const std::optional<Entry> entry = Find(image, path);
+        return entry && !entry->directory;
+    }
+
+    bool ListIsoFiles(const fs::path& iso, int maxDepth, size_t maxFiles, std::vector<IsoFile>& files,
+        std::string& error)
+    {
+        Image image;
+        if (!OpenImage(iso, image, error))
+            return false;
+        struct Folder
+        {
+            Entry entry;
+            std::string path;
+            int depth = 0;
+        };
+        std::vector<Folder> folders = { { image.root, "", 0 } };
+        // Each folder's table is read once (a damaged image's may point back at another).
+        std::unordered_set<uint32_t> tables;
+        uint64_t listed = 0;
+        size_t seen = 0;
+        while (!folders.empty() && seen < maxFiles)
+        {
+            const Folder folder = std::move(folders.back());
+            folders.pop_back();
+            listed += folder.entry.size;
+            if (!tables.insert(folder.entry.sector).second || listed > kMaxListed)
+                continue;
+            ForEachEntry(image, folder.entry, [&](std::string_view name, const Entry& entry) {
+                const std::string path = folder.path.empty() ? std::string(name)
+                                                             : fmt::format("{}/{}", folder.path, name);
+                if (!entry.directory)
+                    files.push_back({ path, image.base + entry.sector * kSector, entry.size });
+                else if (folder.depth < maxDepth)
+                    folders.push_back({ entry, path, folder.depth + 1 });
+                return ++seen < maxFiles;
+            });
         }
         return true;
     }

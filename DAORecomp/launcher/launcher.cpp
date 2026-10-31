@@ -296,7 +296,12 @@ namespace dao::launcher
             if (!fs::is_regular_file(gameRoot / kArtArchive, ec) && fs::is_regular_file(SetupArtRoot() / kArtArchive, ec))
                 st.gameRoot = SetupArtRoot();
             st.installDest = Utf8(mode.dest);
-            st.installIso = Utf8(mode.iso);
+            // (The game's disc, or the Ultimate Edition's second one: sorted as a drop is.)
+            if (!mode.iso.empty())
+            {
+                st.dropped = { mode.iso };
+                TakeDroppedInstallFiles(st);
+            }
             // An update keeps the shortcuts there are (or the player removed).
             st.installShortcuts = !HasGameFiles(st);
             st.installSteam = !HasGameFiles(st);
@@ -321,12 +326,16 @@ namespace dao::launcher
         if (const char* dir = getenv("DAO_LAUNCHER_SCREENSHOTS"))
         {
             st.screenshotDir = dir;
-            // A drop to test adding mods and installing packages with: paths separated by |.
+            // A drop to test adding mods and installing packages (or setup's fields) with:
+            // paths separated by |.
             if (const wchar_t* drop = _wgetenv(L"DAO_LAUNCHER_DROP"))
             {
                 for (const auto part : std::views::split(std::wstring_view(drop), L'|'))
                     st.dropped.push_back(std::wstring_view(part.begin(), part.end()));
-                AddDroppedMods(st);
+                if (st.setupOnly)
+                    TakeDroppedInstallFiles(st);
+                else
+                    AddDroppedMods(st);
             }
         }
         // (Setup may have no art until a disc image is chosen.)
