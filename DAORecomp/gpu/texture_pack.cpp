@@ -97,11 +97,6 @@ namespace dao::gpu
         }
     }
 
-    fs::path TexturePacksRoot(const fs::path& gameRoot)
-    {
-        return gameRoot.parent_path() / "texture packs";
-    }
-
     void StartTexturePackIndex(const fs::path& gameRoot)
     {
         const Settings& settings = GetSettings();

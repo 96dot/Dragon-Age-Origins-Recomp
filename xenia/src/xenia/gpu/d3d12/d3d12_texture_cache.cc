@@ -31,6 +31,8 @@
 #include "xenia/ui/d3d12/d3d12_upload_buffer_pool.h"
 #include "xenia/ui/d3d12/d3d12_util.h"
 
+DECLARE_bool(dao_texture_log);
+
 namespace xe {
 namespace gpu {
 namespace d3d12 {
@@ -1446,9 +1448,19 @@ void D3D12TextureCache::DaoPackSwapLoaded() {
     // so they go now).
     auto texture = static_cast<D3D12Texture*>(DaoFindTexture(loaded.key));
     if (!texture || texture->dao_id() ||
-        DaoTextureId(*texture, *dao_pack_index_) != loaded.id ||
-        !DaoPackMakeRoom(loaded.bytes)) {
+        DaoTextureId(*texture, *dao_pack_index_) != loaded.id) {
       continue;
+    }
+    if (!DaoPackMakeRoom(loaded.bytes)) {
+      if (cvars::dao_texture_log) {
+        XELOGI("DAO texture pack: {:016X} not swapped in, over the budget",
+               loaded.id);
+      }
+      continue;
+    }
+    if (cvars::dao_texture_log) {
+      XELOGI("DAO texture pack: {:016X} swapped in ({} MB in use)", loaded.id,
+             (dao_pack_bytes_ + loaded.bytes) >> 20);
     }
 
     DeferredCommandList& command_list =
@@ -1479,6 +1491,9 @@ void D3D12TextureCache::DaoPackSwapLoaded() {
 }
 
 void D3D12TextureCache::DaoPackRevert(D3D12Texture& texture) {
+  if (cvars::dao_texture_log) {
+    XELOGI("DAO texture pack: {:016X} back to the game's", texture.dao_id());
+  }
   DaoPackReleaseDescriptors(texture);
   dao_pack_bytes_ -= texture.dao_bytes();
   command_processor_.DaoReleaseResourceLater(texture.DaoRestore().Get());

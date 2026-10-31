@@ -1,6 +1,7 @@
 #include "stdafx.h"
 #include "launcher/launcher_internal.h"
 
+#include "gpu/texture_pack.h"
 #include "patches/patches.h"
 #include "program.h"
 #include "text.h"
@@ -28,6 +29,10 @@ namespace dao::launcher
         // The names of kAnisotropicLevels.
         constexpr const char* kAnisotropicNames[] = { "Game default", "2x", "4x", "8x", "16x" };
         static_assert(std::size(kAnisotropicNames) == std::size(kAnisotropicLevels));
+        // The names of kTexturePackMaxSizes.
+        constexpr const char* kTexturePackMaxSizeNames[] = { "No limit", "1024 (1K)", "2048 (2K)", "4096 (4K)",
+            "8192 (8K)" };
+        static_assert(std::size(kTexturePackMaxSizeNames) == std::size(kTexturePackMaxSizes));
         // The names of kFrameRates.
         constexpr const char* kFrameRateNames[] = { "30 fps (original)", "60 fps", "90 fps", "120 fps", "144 fps",
             "165 fps", "240 fps", "Unlimited" };
@@ -259,6 +264,26 @@ namespace dao::launcher
                 s.anisotropicFiltering = kAnisotropicLevels[anisotropic];
             HelpText("Sharper textures on surfaces seen at an angle, such as floors and roads. The game's default "
                      "is the fastest.");
+            ImGui::Spacing();
+            ImGui::Checkbox("Texture packs", &s.texturePacks);
+            HelpText("PC texture packs (.dds files, such as from Nexus Mods) put in the texture packs folder "
+                     "replace the game's textures of the same name, on the graphics card only. They load in "
+                     "the background, so a texture may sharpen a moment after it appears.");
+            if (s.texturePacks)
+            {
+                int maxSize = int(std::find(std::begin(kTexturePackMaxSizes), std::end(kTexturePackMaxSizes),
+                                      s.texturePackMaxSize) -
+                    std::begin(kTexturePackMaxSizes));
+                if (maxSize >= int(std::size(kTexturePackMaxSizes)))
+                    maxSize = 0;
+                if (ComboRow("Texture pack size limit", &maxSize, kTexturePackMaxSizeNames,
+                        int(std::size(kTexturePackMaxSizeNames))))
+                    s.texturePackMaxSize = kTexturePackMaxSizes[maxSize];
+                HelpText("Larger textures are loaded at this size: less graphics memory, for the Steam Deck or "
+                         "cards with 4 GB or less.");
+                if (ImGui::Button("Open the texture packs folder"))
+                    OpenFolder(gpu::TexturePacksRoot(st.gameRoot));
+            }
 
             Section("Effects");
             ImGui::Checkbox("Dynamic shadows", &s.shadows);
@@ -459,6 +484,8 @@ namespace dao::launcher
             s.upscaler = defaults.upscaler;
             s.sharpness = defaults.sharpness;
             s.anisotropicFiltering = defaults.anisotropicFiltering;
+            s.texturePacks = defaults.texturePacks;
+            s.texturePackMaxSize = defaults.texturePackMaxSize;
             s.shadows = defaults.shadows;
             s.postProcessing = defaults.postProcessing;
             s.motionBlur = defaults.motionBlur;

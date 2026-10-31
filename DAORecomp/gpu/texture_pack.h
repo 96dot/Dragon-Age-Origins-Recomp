@@ -9,7 +9,11 @@
 
 namespace dao::gpu
 {
-    std::filesystem::path TexturePacksRoot(const std::filesystem::path& gameRoot);
+    // (Inline for the launcher-only build, which has no texture cache.)
+    inline std::filesystem::path TexturePacksRoot(const std::filesystem::path& gameRoot)
+    {
+        return gameRoot.parent_path() / "texture packs";
+    }
 
     // With texture packs on and any in the folder.
     void StartTexturePackIndex(const std::filesystem::path& gameRoot);
