@@ -27,6 +27,8 @@ namespace dao
     inline constexpr int kFovSteps[] = { 80, 85, 91, 95, 100, 105, 110, 115, 120 };
     // Settings::anisotropicFiltering values: 0 = the game default.
     inline constexpr int kAnisotropicLevels[] = { 0, 2, 4, 8, 16 };
+    // Settings::texturePackMaxSize values: 0 = any size.
+    inline constexpr int kTexturePackMaxSizes[] = { 0, 1024, 2048, 4096, 8192 };
     // The frame rates offered (0: unlimited). 30 is the game's own lock in its 3D
     // scenes; above 60 is experimental.
     inline constexpr int kFrameRates[] = { 30, 60, 90, 120, 144, 165, 240, 0 };
@@ -133,6 +135,12 @@ namespace dao
         int conversationFov = kOriginalFov;
         // Anisotropic texture filtering, one of kAnisotropicLevels.
         int anisotropicFiltering = 0;
+        // Texture packs (gpu/texture_pack.h): on, the largest width or height loaded
+        // (one of kTexturePackMaxSizes; larger mips are left out), and the graphics
+        // memory they may take in MB (0: half the graphics card's own).
+        bool texturePacks = true;
+        int texturePackMaxSize = 0;
+        int texturePackMemory = 0;
         // The engine's dynamic character shadows and its post-processing (frame
         // buffer effects): switches of the PC version left in the 360 engine.
         bool shadows = true;

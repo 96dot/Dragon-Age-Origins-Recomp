@@ -117,6 +117,9 @@ namespace dao
         s.neuralStyle = std::clamp(s.neuralStyle, 0, kMaxNeuralStyle);
         if (std::ranges::find(kAnisotropicLevels, s.anisotropicFiltering) == std::end(kAnisotropicLevels))
             s.anisotropicFiltering = 0;
+        if (std::ranges::find(kTexturePackMaxSizes, s.texturePackMaxSize) == std::end(kTexturePackMaxSizes))
+            s.texturePackMaxSize = 0;
+        s.texturePackMemory = std::clamp(s.texturePackMemory, 0, 1 << 20);
         if (std::ranges::find(kFrameRates, s.frameRate) == std::end(kFrameRates))
             s.frameRate = defaults.frameRate;
         s.hdrPaperWhite = std::clamp(s.hdrPaperWhite, kHdrMinNits, kHdrMaxPaperWhite);
@@ -253,6 +256,9 @@ namespace dao
         s.depthOfField = video["depth_of_field"].value_or(s.depthOfField);
         s.fov = video["fov"].value_or(s.fov);
         s.conversationFov = video["conversation_fov"].value_or(s.conversationFov);
+        s.texturePacks = video["texture_packs"].value_or(s.texturePacks);
+        s.texturePackMaxSize = video["texture_pack_max_size"].value_or(s.texturePackMaxSize);
+        s.texturePackMemory = video["texture_pack_memory"].value_or(s.texturePackMemory);
         s.hdr = video["hdr"].value_or(s.hdr);
         s.hdrPaperWhite = video["hdr_paper_white"].value_or(s.hdrPaperWhite);
         s.hdrPeak = video["hdr_peak"].value_or(s.hdrPeak);
@@ -397,6 +403,13 @@ depth_of_field = {}
 # in gameplay, and in conversations and cutscenes (scaling each shot's own).
 fov = {}
 conversation_fov = {}
+# Texture packs: PC .dds textures in the "texture packs" folder next to the game folder (in
+# any folders inside it) replace the game's of the same name, on the graphics card only.
+# texture_pack_max_size leaves out larger sizes (0 for none, or 1024, 2048, 4096, 8192), and
+# texture_pack_memory is the graphics memory they may take in MB (0: half the card's own).
+texture_packs = {}
+texture_pack_max_size = {}
+texture_pack_memory = {}
 fullscreen = {}
 window_width = {}
 window_height = {}
@@ -412,7 +425,8 @@ window_height = {}
             Quote(s.neuralWeights), s.neuralStrength, s.neuralNetwork, s.neuralPasses, s.neuralSkinProtect,
             s.neuralStyle, s.neuralFrameRateGuard, s.vsync, LowLatencyName(s.lowLatency), s.frameRate,
             s.hdr, s.hdrPaperWhite, s.hdrPeak, HdrQualityName(s.hdrHighQuality), s.anisotropicFiltering, s.shadows, s.postProcessing,
-            MotionBlurName(s.motionBlur), s.depthOfField, s.fov, s.conversationFov, s.fullscreen,
+            MotionBlurName(s.motionBlur), s.depthOfField, s.fov, s.conversationFov, s.texturePacks,
+            s.texturePackMaxSize, s.texturePackMemory, s.fullscreen,
             s.windowWidth, s.windowHeight);
         for (const auto& [id, enabled] : s.patches)
         {
@@ -515,6 +529,11 @@ window_height = {}
             LOGI("Settings: low latency {}", LowLatencyName(s.lowLatency));
         if (s.fov != kOriginalFov || s.conversationFov != kOriginalFov)
             LOGI("Settings: field of view {}, in conversations {}", s.fov, s.conversationFov);
+        if (!s.texturePacks)
+            LOGI("Settings: texture packs off");
+        else if (s.texturePackMaxSize || s.texturePackMemory)
+            LOGI("Settings: texture packs up to {}, {}", s.texturePackMaxSize ? std::to_string(s.texturePackMaxSize) : "any size",
+                s.texturePackMemory ? fmt::format("{} MB", s.texturePackMemory) : "half the graphics memory");
         if (s.hdr)
             LOGI("Settings: HDR output, paper white {} nits, peak {} nits, quality {}", s.hdrPaperWhite, s.hdrPeak,
                 HdrQualityName(s.hdrHighQuality));

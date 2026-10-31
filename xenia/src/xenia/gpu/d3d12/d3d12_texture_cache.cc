@@ -9,15 +9,18 @@
 
 #include "xenia/gpu/d3d12/d3d12_texture_cache.h"
 
+#include <algorithm>
 #include <array>
 #include <cfloat>
 #include <cstddef>
 #include <cstring>
+#include <fstream>
 
 #include "xenia/base/assert.h"
 #include "xenia/base/logging.h"
 #include "xenia/base/math.h"
 #include "xenia/base/profiling.h"
+#include "xenia/base/threading.h"
 #include "xenia/dao_live_settings.h"  // DAO
 #include "xenia/gpu/d3d12/d3d12_command_processor.h"
 #include "xenia/gpu/d3d12/d3d12_shared_memory.h"
@@ -109,6 +112,8 @@ D3D12TextureCache::D3D12TextureCache(const RegisterFile& register_file,
       bindless_resources_used_(bindless_resources_used) {}
 
 D3D12TextureCache::~D3D12TextureCache() {
+  DaoPackStopLoader();
+
   // While the texture descriptor cache still exists (referenced by
   // ~D3D12Texture), destroy all textures.
   DestroyAllTextures(true);
@@ -499,7 +504,20 @@ void D3D12TextureCache::RequestTextures(uint32_t used_texture_mask) {
   SCOPE_profile_cpu_f("gpu");
 #endif  // XE_GPU_FINE_GRAINED_DRAW_SCOPES
 
-  TextureCache::RequestTextures(used_texture_mask);
+  // DAO texture packs: swap in what the loader has read, and redo the bindings
+  // if a texture's resource has changed (once more if a load in the request
+  // puts the game's resource back).
+  DaoPackSwapLoaded();
+  for (uint32_t pass = 0; pass < 2; ++pass) {
+    if (dao_pack_rebind_) {
+      dao_pack_rebind_ = false;
+      ResetTextureBindings();
+    }
+    TextureCache::RequestTextures(used_texture_mask);
+    if (!dao_pack_rebind_) {
+      break;
+    }
+  }
 
   // Pre-create 3D-as-2D wrappers for any 3D textures while we're still in
   // the texture loading phase (before graphics pipeline setup). LoadTextureData
@@ -1294,8 +1312,434 @@ D3D12TextureCache::D3D12Texture::D3D12Texture(
       device->GetResourceAllocationInfo(0, 1, &resource_desc).SizeInBytes);
 }
 
+std::vector<uint32_t>
+D3D12TextureCache::D3D12Texture::DaoTakeSRVDescriptors() {
+  std::vector<uint32_t> indices;
+  indices.reserve(srv_descriptors_.size());
+  for (const auto& descriptor_pair : srv_descriptors_) {
+    indices.push_back(descriptor_pair.second);
+  }
+  srv_descriptors_.clear();
+  return indices;
+}
+
+void D3D12TextureCache::D3D12Texture::DaoReplace(
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource, uint64_t id,
+    DXGI_FORMAT format, uint32_t mip_levels, uint64_t bytes) {
+  assert_true(srv_descriptors_.empty() && !dao_id_);
+  dao_game_resource_ = std::move(resource_);
+  dao_game_resource_state_ = resource_state_;
+  resource_ = std::move(resource);
+  resource_state_ = D3D12_RESOURCE_STATE_COPY_DEST;
+  dao_id_ = id;
+  dao_format_ = format;
+  dao_mip_levels_ = mip_levels;
+  dao_bytes_ = bytes;
+}
+
+Microsoft::WRL::ComPtr<ID3D12Resource>
+D3D12TextureCache::D3D12Texture::DaoRestore() {
+  assert_true(srv_descriptors_.empty() && dao_id_);
+  Microsoft::WRL::ComPtr<ID3D12Resource> pack_resource = std::move(resource_);
+  resource_ = std::move(dao_game_resource_);
+  resource_state_ = dao_game_resource_state_;
+  dao_id_ = 0;
+  dao_format_ = DXGI_FORMAT_UNKNOWN;
+  dao_mip_levels_ = 0;
+  dao_bytes_ = 0;
+  return pack_resource;
+}
+
+namespace {
+// DAO texture packs: what the GPU thread copies to swapped-in textures per
+// submission (at least one texture), so swaps don't stall a frame.
+constexpr uint64_t kDaoPackBytesPerSubmission = 32ull << 20;
+// What the loader may have read ahead (upload memory) before the GPU thread
+// takes it.
+constexpr uint64_t kDaoPackLoadedBytesMax = 256ull << 20;
+// A replacement used in any of this many latest submissions (about a second)
+// isn't freed for the memory budget.
+constexpr uint64_t kDaoPackKeepSubmissions = 60;
+// Larger .dds files aren't read (an 16384x16384 DXT5 with mips is 358 MB).
+constexpr uint64_t kDaoPackMaxFileBytes = 512ull << 20;
+}  // namespace
+
+bool D3D12TextureCache::DaoPackOnLoad(D3D12Texture& texture) {
+  if (!dao_pack_index_) {
+    dao_pack_index_ = dao_texture_pack::Get();
+    if (!dao_pack_index_) {
+      return false;
+    }
+    // The budget: as set, or half the graphics card's own memory.
+    dao_pack_budget_ = dao_pack_index_->memory_budget;
+    if (!dao_pack_budget_) {
+      const ui::d3d12::D3D12Provider& provider =
+          command_processor_.GetD3D12Provider();
+      Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
+      Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
+      DXGI_ADAPTER_DESC1 adapter_desc;
+      if (SUCCEEDED(provider.GetDXGIFactory()->QueryInterface(
+              IID_PPV_ARGS(&factory))) &&
+          SUCCEEDED(factory->EnumAdapterByLuid(
+              provider.GetDevice()->GetAdapterLuid(), IID_PPV_ARGS(&adapter))) &&
+          SUCCEEDED(adapter->GetDesc1(&adapter_desc))) {
+        dao_pack_budget_ = uint64_t(adapter_desc.DedicatedVideoMemory) / 2;
+      }
+      dao_pack_budget_ = std::max(dao_pack_budget_, uint64_t(256) << 20);
+    }
+    XELOGI("DAO texture pack: {} textures, up to {} MB of graphics memory",
+           dao_pack_index_->entries.size(), dao_pack_budget_ >> 20);
+    dao_pack_loader_ =
+        std::thread(&D3D12TextureCache::DaoPackLoaderThread, this);
+  }
+  uint64_t id = DaoTextureId(texture, *dao_pack_index_);
+  if (texture.dao_id()) {
+    if (id == texture.dao_id()) {
+      return true;
+    }
+    // The guest has put another texture there.
+    DaoPackRevert(texture);
+  }
+  if (id && !dao_pack_failed_.count(id) &&
+      dao_pack_pending_.insert(texture.key()).second) {
+    {
+      std::lock_guard<std::mutex> lock(dao_pack_mutex_);
+      dao_pack_jobs_.push_back({texture.key(), id,
+                                dao_pack_index_->entries.at(id).file,
+                                dao_pack_index_->max_size});
+    }
+    dao_pack_cv_.notify_all();
+  }
+  return false;
+}
+
+void D3D12TextureCache::DaoPackSwapLoaded() {
+  if (!dao_pack_index_) {
+    return;
+  }
+  uint64_t submission = command_processor_.GetCurrentSubmission();
+  if (submission != dao_pack_submission_) {
+    dao_pack_submission_ = submission;
+    dao_pack_submission_bytes_ = 0;
+  }
+  for (;;) {
+    DaoPackLoaded loaded;
+    {
+      std::lock_guard<std::mutex> lock(dao_pack_mutex_);
+      if (dao_pack_loaded_.empty() ||
+          (dao_pack_submission_bytes_ &&
+           dao_pack_submission_bytes_ + dao_pack_loaded_.front().bytes >
+               kDaoPackBytesPerSubmission)) {
+        break;
+      }
+      loaded = std::move(dao_pack_loaded_.front());
+      dao_pack_loaded_.pop_front();
+      dao_pack_loaded_bytes_ -= loaded.bytes;
+    }
+    dao_pack_cv_.notify_all();
+    dao_pack_pending_.erase(loaded.key);
+    if (!loaded.resource) {
+      dao_pack_failed_.insert(loaded.id);
+      continue;
+    }
+    // Gone, or holding another texture since (the resources were never used,
+    // so they go now).
+    auto texture = static_cast<D3D12Texture*>(DaoFindTexture(loaded.key));
+    if (!texture || texture->dao_id() ||
+        DaoTextureId(*texture, *dao_pack_index_) != loaded.id ||
+        !DaoPackMakeRoom(loaded.bytes)) {
+      continue;
+    }
+
+    DeferredCommandList& command_list =
+        command_processor_.GetDeferredCommandList();
+    command_processor_.SubmitBarriers();
+    D3D12_TEXTURE_COPY_LOCATION location_source, location_dest;
+    location_source.pResource = loaded.upload_buffer.Get();
+    location_source.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+    location_dest.pResource = loaded.resource.Get();
+    location_dest.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+    for (uint32_t level = 0; level < loaded.layouts.size(); ++level) {
+      location_source.PlacedFootprint = loaded.layouts[level];
+      location_dest.SubresourceIndex = level;
+      command_list.D3DCopyTextureRegion(&location_dest, 0, 0, 0,
+                                        &location_source, nullptr);
+    }
+    command_processor_.DaoReleaseResourceLater(loaded.upload_buffer.Get());
+
+    DaoPackReleaseDescriptors(*texture);
+    texture->DaoReplace(std::move(loaded.resource), loaded.id, loaded.format,
+                        uint32_t(loaded.layouts.size()), loaded.bytes);
+    // Not destroyed before the copy is done.
+    texture->MarkAsUsed();
+    dao_pack_replaced_.push_back(texture);
+    dao_pack_bytes_ += loaded.bytes;
+    dao_pack_submission_bytes_ += loaded.bytes;
+  }
+}
+
+void D3D12TextureCache::DaoPackRevert(D3D12Texture& texture) {
+  DaoPackReleaseDescriptors(texture);
+  dao_pack_bytes_ -= texture.dao_bytes();
+  command_processor_.DaoReleaseResourceLater(texture.DaoRestore().Get());
+  std::erase(dao_pack_replaced_, &texture);
+}
+
+bool D3D12TextureCache::DaoPackMakeRoom(uint64_t bytes) {
+  uint64_t budget = dao_pack_budget_;
+  if (dao_pack_bytes_ + bytes <= budget) {
+    return true;
+  }
+  // Least recently used first.
+  std::vector<D3D12Texture*> replaced = dao_pack_replaced_;
+  std::sort(replaced.begin(), replaced.end(),
+            [](const D3D12Texture* a, const D3D12Texture* b) {
+              return a->last_usage_submission_index() <
+                     b->last_usage_submission_index();
+            });
+  uint64_t submission = command_processor_.GetCurrentSubmission();
+  for (D3D12Texture* texture : replaced) {
+    if (dao_pack_bytes_ + bytes <= budget ||
+        texture->last_usage_submission_index() + kDaoPackKeepSubmissions >
+            submission) {
+      break;
+    }
+    DaoPackRevert(*texture);
+  }
+  return dao_pack_bytes_ + bytes <= budget;
+}
+
+void D3D12TextureCache::DaoPackReleaseDescriptors(D3D12Texture& texture) {
+  for (uint32_t descriptor_index : texture.DaoTakeSRVDescriptors()) {
+    if (bindless_resources_used_) {
+      // Draws already recorded may use it.
+      command_processor_.DaoReleaseViewBindlessDescriptorLater(
+          descriptor_index);
+    } else {
+      // Only ever copied to the shader-visible heaps, on the CPU.
+      ReleaseTextureDescriptor(descriptor_index);
+    }
+  }
+  // The bindings that have the old views.
+  command_processor_.DaoInvalidateTextureBindings();
+  dao_pack_rebind_ = true;
+}
+
+void D3D12TextureCache::DaoPackLoaderThread() {
+  xe::threading::set_name("DAO texture pack loader");
+  std::unique_lock<std::mutex> lock(dao_pack_mutex_);
+  for (;;) {
+    dao_pack_cv_.wait(lock, [this] {
+      return dao_pack_stop_ || (!dao_pack_jobs_.empty() &&
+                                dao_pack_loaded_bytes_ < kDaoPackLoadedBytesMax);
+    });
+    if (dao_pack_stop_) {
+      return;
+    }
+    DaoPackJob job = std::move(dao_pack_jobs_.front());
+    dao_pack_jobs_.pop_front();
+    lock.unlock();
+    DaoPackLoaded loaded = DaoPackLoad(job);
+    lock.lock();
+    dao_pack_loaded_bytes_ += loaded.bytes;
+    dao_pack_loaded_.push_back(std::move(loaded));
+  }
+}
+
+D3D12TextureCache::DaoPackLoaded D3D12TextureCache::DaoPackLoad(
+    const DaoPackJob& job) const {
+  DaoPackLoaded loaded;
+  loaded.key = job.key;
+  loaded.id = job.id;
+  std::string name = job.file.filename().string();
+
+  std::ifstream file(job.file, std::ios::binary | std::ios::ate);
+  std::streamoff file_size = file ? std::streamoff(file.tellg()) : -1;
+  if (file_size < 148 || uint64_t(file_size) > kDaoPackMaxFileBytes) {
+    XELOGW("DAO texture pack: can't use {} (missing, or too small or large)",
+           name);
+    return loaded;
+  }
+  std::vector<uint8_t> dds(static_cast<size_t>(file_size));
+  file.seekg(0);
+  if (!file.read(reinterpret_cast<char*>(dds.data()), file_size)) {
+    XELOGW("DAO texture pack: couldn't read {}", name);
+    return loaded;
+  }
+  auto u32 = [&dds](size_t offset) {
+    uint32_t value;
+    std::memcpy(&value, dds.data() + offset, sizeof(value));
+    return value;
+  };
+
+  // The DDS header (after the magic): height at 12, width at 16, mip count at
+  // 28, the FourCC at 84; with "DX10", the DXGI format at 128 and the texels
+  // from 148, otherwise from 128. Volumes, cube maps and arrays aren't used.
+  constexpr uint32_t kCubemap = 0x200, kVolume = 0x200000;
+  uint32_t height = u32(12), width = u32(16);
+  uint32_t mip_levels = std::max(u32(28), uint32_t(1));
+  uint32_t fourcc = u32(84);
+  size_t data_offset = 128;
+  DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+  if (u32(0) == 0x20534444 && !(u32(112) & (kCubemap | kVolume))) {
+    switch (fourcc) {
+      case 0x31545844:  // DXT1
+        format = DXGI_FORMAT_BC1_UNORM;
+        break;
+      case 0x33545844:  // DXT3
+        format = DXGI_FORMAT_BC2_UNORM;
+        break;
+      case 0x35545844:  // DXT5
+        format = DXGI_FORMAT_BC3_UNORM;
+        break;
+      case 0x30315844:  // DX10
+        data_offset = 148;
+        if (u32(136) != 1 || u32(140) > 1) {
+          break;  // A cube map or an array.
+        }
+        switch (DXGI_FORMAT(u32(128))) {
+          case DXGI_FORMAT_BC1_UNORM:
+          case DXGI_FORMAT_BC1_UNORM_SRGB:
+            format = DXGI_FORMAT_BC1_UNORM;
+            break;
+          case DXGI_FORMAT_BC2_UNORM:
+          case DXGI_FORMAT_BC2_UNORM_SRGB:
+            format = DXGI_FORMAT_BC2_UNORM;
+            break;
+          case DXGI_FORMAT_BC3_UNORM:
+          case DXGI_FORMAT_BC3_UNORM_SRGB:
+            format = DXGI_FORMAT_BC3_UNORM;
+            break;
+          case DXGI_FORMAT_BC7_UNORM:
+          case DXGI_FORMAT_BC7_UNORM_SRGB:
+            format = DXGI_FORMAT_BC7_UNORM;
+            break;
+          default:
+            break;
+        }
+        break;
+      default:
+        break;
+    }
+  }
+  if (format == DXGI_FORMAT_UNKNOWN) {
+    XELOGW("DAO texture pack: {} isn't a DXT1/3/5 or BC7 .dds", name);
+    return loaded;
+  }
+  uint32_t block_bytes = format == DXGI_FORMAT_BC1_UNORM ? 8 : 16;
+  auto level_bytes = [&](uint32_t level) {
+    return size_t(std::max(((width >> level) + 3) / 4, uint32_t(1))) *
+           std::max(((height >> level) + 3) / 4, uint32_t(1)) * block_bytes;
+  };
+  mip_levels = std::min(mip_levels, uint32_t(xe::log2_floor(
+                                        std::max(width, height) | 1)) + 1);
+  size_t data_end = data_offset;
+  for (uint32_t level = 0; level < mip_levels; ++level) {
+    data_end += level_bytes(level);
+  }
+  if (!width || !height || dds.size() < data_end) {
+    XELOGW("DAO texture pack: {} is damaged", name);
+    return loaded;
+  }
+
+  // Leave out the mips above the size limit, and D3D12's (16384).
+  uint32_t max_size = job.max_size ? std::min(job.max_size, uint32_t(16384))
+                                   : uint32_t(16384);
+  uint32_t first_level = 0;
+  while (first_level + 1 < mip_levels &&
+         std::max(width >> first_level, height >> first_level) > max_size) {
+    data_offset += level_bytes(first_level);
+    ++first_level;
+  }
+  uint32_t level_width = std::max(width >> first_level, uint32_t(1));
+  uint32_t level_height = std::max(height >> first_level, uint32_t(1));
+  // Not below the game's own, and in whole blocks as D3D12 requires.
+  if (level_width < job.key.GetWidth() || level_height < job.key.GetHeight() ||
+      std::max(level_width, level_height) > 16384 || level_width % 4 ||
+      level_height % 4) {
+    XELOGW("DAO texture pack: not using {} ({}x{} for the game's {}x{})", name,
+           level_width, level_height, job.key.GetWidth(),
+           job.key.GetHeight());
+    return loaded;
+  }
+  uint32_t level_count = mip_levels - first_level;
+
+  ID3D12Device* device = command_processor_.GetD3D12Provider().GetDevice();
+  D3D12_RESOURCE_DESC desc = {};
+  desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+  desc.Width = level_width;
+  desc.Height = level_height;
+  desc.DepthOrArraySize = 1;
+  desc.MipLevels = UINT16(level_count);
+  desc.Format = format;
+  desc.SampleDesc.Count = 1;
+  desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+  loaded.layouts.resize(level_count);
+  std::vector<UINT> row_counts(level_count);
+  std::vector<UINT64> row_sizes(level_count);
+  UINT64 upload_size;
+  device->GetCopyableFootprints(&desc, 0, level_count, 0,
+                                loaded.layouts.data(), row_counts.data(),
+                                row_sizes.data(), &upload_size);
+  D3D12_RESOURCE_DESC buffer_desc;
+  ui::d3d12::util::FillBufferResourceDesc(buffer_desc, upload_size,
+                                          D3D12_RESOURCE_FLAG_NONE);
+  D3D12_HEAP_FLAGS heap_flags =
+      command_processor_.GetD3D12Provider().GetHeapFlagCreateNotZeroed();
+  Microsoft::WRL::ComPtr<ID3D12Resource> resource, upload_buffer;
+  uint8_t* mapping;
+  if (FAILED(device->CreateCommittedResource(
+          &ui::d3d12::util::kHeapPropertiesDefault, heap_flags, &desc,
+          D3D12_RESOURCE_STATE_COPY_DEST, nullptr,
+          IID_PPV_ARGS(&resource))) ||
+      FAILED(device->CreateCommittedResource(
+          &ui::d3d12::util::kHeapPropertiesUpload, heap_flags, &buffer_desc,
+          D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+          IID_PPV_ARGS(&upload_buffer))) ||
+      FAILED(upload_buffer->Map(0, nullptr,
+                                reinterpret_cast<void**>(&mapping)))) {
+    XELOGW("DAO texture pack: couldn't create a texture for {}", name);
+    loaded.layouts.clear();
+    return loaded;
+  }
+  const uint8_t* source = dds.data() + data_offset;
+  for (uint32_t level = 0; level < level_count; ++level) {
+    size_t row_bytes = size_t(row_sizes[level]);
+    for (UINT row = 0; row < row_counts[level]; ++row) {
+      std::memcpy(mapping + loaded.layouts[level].Offset +
+                      size_t(row) * loaded.layouts[level].Footprint.RowPitch,
+                  source + size_t(row) * row_bytes, row_bytes);
+    }
+    source += level_bytes(first_level + level);
+  }
+  upload_buffer->Unmap(0, nullptr);
+
+  loaded.resource = std::move(resource);
+  loaded.upload_buffer = std::move(upload_buffer);
+  loaded.format = format;
+  loaded.bytes = device->GetResourceAllocationInfo(0, 1, &desc).SizeInBytes;
+  XELOGI("DAO texture pack: {} {}x{} for the game's {}x{}", name, level_width,
+         level_height, job.key.GetWidth(), job.key.GetHeight());
+  return loaded;
+}
+
+void D3D12TextureCache::DaoPackStopLoader() {
+  {
+    std::lock_guard<std::mutex> lock(dao_pack_mutex_);
+    dao_pack_stop_ = true;
+  }
+  dao_pack_cv_.notify_all();
+  if (dao_pack_loader_.joinable()) {
+    dao_pack_loader_.join();
+  }
+}
+
 D3D12TextureCache::D3D12Texture::~D3D12Texture() {
   auto& d3d12_texture_cache = static_cast<D3D12TextureCache&>(texture_cache());
+  if (dao_id_) {
+    d3d12_texture_cache.dao_pack_bytes_ -= dao_bytes_;
+    std::erase(d3d12_texture_cache.dao_pack_replaced_, this);
+  }
   for (const auto& descriptor_pair : srv_descriptors_) {
     d3d12_texture_cache.ReleaseTextureDescriptor(descriptor_pair.second);
   }
@@ -1445,6 +1889,12 @@ bool D3D12TextureCache::LoadTextureDataFromResidentMemoryImpl(Texture& texture,
                                                               bool load_mips) {
   D3D12Texture& d3d12_texture = static_cast<D3D12Texture&>(texture);
   TextureKey texture_key = d3d12_texture.key();
+
+  // DAO texture packs: a replaced texture keeps the pack's image while the
+  // guest has the same texture there.
+  if (load_base ? DaoPackOnLoad(d3d12_texture) : d3d12_texture.dao_id() != 0) {
+    return true;
+  }
 
   DeferredCommandList& command_list =
       command_processor_.GetDeferredCommandList();
@@ -1997,6 +2447,14 @@ uint32_t D3D12TextureCache::FindOrCreateTextureDescriptor(
   }
 
   uint32_t mip_levels = texture_key.mip_max_level + 1;
+  // DAO texture packs: the pack's image has its own format and mips.
+  if (texture.dao_id()) {
+    if (is_signed) {
+      return UINT32_MAX;
+    }
+    desc.Format = texture.dao_format();
+    mip_levels = texture.dao_mip_levels();
+  }
   ID3D12Resource* resource_for_view = texture.resource();
 
   if (dimension == xenos::DataDimension::k3D) {

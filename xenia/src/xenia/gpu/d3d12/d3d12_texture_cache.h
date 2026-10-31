@@ -11,9 +11,15 @@
 #define XENIA_GPU_D3D12_D3D12_TEXTURE_CACHE_H_
 
 #include <array>
+#include <condition_variable>
+#include <deque>
+#include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
+#include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -601,6 +607,50 @@ class D3D12TextureCache final : public TextureCache {
   void UpdateTextureBindingsImpl(uint32_t fetch_constant_mask) override;
 
  private:
+  class D3D12Texture;
+
+  // DAO texture packs (see xenia/gpu/dao_texture_pack.h). A texture the pack
+  // replaces loads the game's texels as usual, and its .dds is read on the
+  // loader thread; the GPU thread then copies it to a texture of its own and
+  // swaps it in (keeping the game's resource to go back to if the guest puts
+  // another texture there, or for the memory budget).
+
+  // A .dds to read for a texture.
+  struct DaoPackJob {
+    TextureKey key;
+    uint64_t id;
+    std::filesystem::path file;
+    uint32_t max_size;
+  };
+  // A .dds read into an upload buffer, for a texture of its size and format
+  // (no resource: the file couldn't be used).
+  struct DaoPackLoaded {
+    TextureKey key;
+    uint64_t id;
+    Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+    Microsoft::WRL::ComPtr<ID3D12Resource> upload_buffer;
+    DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+    std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> layouts;
+    // Of the resource (video memory).
+    uint64_t bytes = 0;
+  };
+
+  // On a texture's base level load: whether the pack's image (already in
+  // place) stands for it, so the game's needn't load; otherwise the game's
+  // goes back in, and the pack's is requested if it has one.
+  bool DaoPackOnLoad(D3D12Texture& texture);
+  // GPU thread, before a draw's textures: swaps in what the loader has read.
+  void DaoPackSwapLoaded();
+  // Back to the game's resource.
+  void DaoPackRevert(D3D12Texture& texture);
+  // Frees replacements not used lately until `bytes` more fit the budget.
+  bool DaoPackMakeRoom(uint64_t bytes);
+  // The texture's views are about to point elsewhere.
+  void DaoPackReleaseDescriptors(D3D12Texture& texture);
+  void DaoPackLoaderThread();
+  DaoPackLoaded DaoPackLoad(const DaoPackJob& job) const;
+  void DaoPackStopLoader();
+
   static constexpr uint32_t kLoadGuestXThreadsPerGroupLog2 = 2;
   static constexpr uint32_t kLoadGuestYBlocksPerGroupLog2 = 5;
 
@@ -656,6 +706,23 @@ class D3D12TextureCache final : public TextureCache {
       srv_descriptors_.emplace(descriptor_key, descriptor_index);
     }
 
+    // DAO texture packs: the id of the pack's image in place of the game's
+    // (0 for none), and its format, mip count and video memory.
+    uint64_t dao_id() const { return dao_id_; }
+    DXGI_FORMAT dao_format() const { return dao_format_; }
+    uint32_t dao_mip_levels() const { return dao_mip_levels_; }
+    uint64_t dao_bytes() const { return dao_bytes_; }
+    // The SRV descriptor indices, forgotten (the caller releases them).
+    std::vector<uint32_t> DaoTakeSRVDescriptors();
+    // Puts the pack's image (in the copy destination state) in place of the
+    // game's resource, which is kept; the views must have been taken.
+    void DaoReplace(Microsoft::WRL::ComPtr<ID3D12Resource> resource,
+                    uint64_t id, DXGI_FORMAT format, uint32_t mip_levels,
+                    uint64_t bytes);
+    // Puts the game's resource back and returns the pack's; the views must
+    // have been taken.
+    Microsoft::WRL::ComPtr<ID3D12Resource> DaoRestore();
+
    private:
     Microsoft::WRL::ComPtr<ID3D12Resource> resource_;
     D3D12_RESOURCE_STATES resource_state_;
@@ -670,7 +737,38 @@ class D3D12TextureCache final : public TextureCache {
     // For bindless - indices in the global shader-visible descriptor heap.
     std::unordered_map<SRVDescriptorKey, uint32_t, SRVDescriptorKey::Hasher>
         srv_descriptors_;
+
+    uint64_t dao_id_ = 0;
+    DXGI_FORMAT dao_format_ = DXGI_FORMAT_UNKNOWN;
+    uint32_t dao_mip_levels_ = 0;
+    uint64_t dao_bytes_ = 0;
+    // The game's resource while the pack's is in its place.
+    Microsoft::WRL::ComPtr<ID3D12Resource> dao_game_resource_;
+    D3D12_RESOURCE_STATES dao_game_resource_state_ = D3D12_RESOURCE_STATE_COMMON;
   };
+
+  // DAO texture packs. GPU thread: the index (once published), the textures
+  // replaced and their video memory, those whose .dds is being read, the ids
+  // whose .dds couldn't be used, whether bindings must be redone, and the
+  // bytes swapped in this submission.
+  std::shared_ptr<const dao_texture_pack::Index> dao_pack_index_;
+  std::vector<D3D12Texture*> dao_pack_replaced_;
+  uint64_t dao_pack_bytes_ = 0;
+  uint64_t dao_pack_budget_ = 0;
+  std::unordered_set<TextureKey, TextureKey::Hasher> dao_pack_pending_;
+  std::unordered_set<uint64_t> dao_pack_failed_;
+  bool dao_pack_rebind_ = false;
+  uint64_t dao_pack_submission_ = 0;
+  uint64_t dao_pack_submission_bytes_ = 0;
+  // Shared with the loader thread (under the mutex): the jobs, what it has
+  // read, and that read's upload memory.
+  std::thread dao_pack_loader_;
+  std::mutex dao_pack_mutex_;
+  std::condition_variable dao_pack_cv_;
+  std::deque<DaoPackJob> dao_pack_jobs_;
+  std::deque<DaoPackLoaded> dao_pack_loaded_;
+  uint64_t dao_pack_loaded_bytes_ = 0;
+  bool dao_pack_stop_ = false;
 
   static constexpr uint32_t kSRVDescriptorCachePageSize = 65536;
 

@@ -472,6 +472,25 @@ void D3D12CommandProcessor::ReleaseViewBindlessDescriptorImmediately(
   view_bindless_heap_free_.push_back(descriptor_index);
 }
 
+void D3D12CommandProcessor::DaoReleaseViewBindlessDescriptorLater(
+    uint32_t descriptor_index) {
+  assert_true(bindless_resources_used_);
+  view_bindless_one_use_descriptors_.emplace_back(descriptor_index,
+                                                  GetCurrentSubmission());
+}
+
+void D3D12CommandProcessor::DaoReleaseResourceLater(ID3D12Resource* resource) {
+  resource->AddRef();
+  resources_for_deletion_.emplace_back(GetCurrentSubmission(), resource);
+}
+
+void D3D12CommandProcessor::DaoInvalidateTextureBindings() {
+  cbuffer_binding_descriptor_indices_vertex_.up_to_date = false;
+  cbuffer_binding_descriptor_indices_pixel_.up_to_date = false;
+  bindful_textures_written_vertex_ = false;
+  bindful_textures_written_pixel_ = false;
+}
+
 bool D3D12CommandProcessor::RequestOneUseSingleViewDescriptors(
     uint32_t count, ui::d3d12::util::DescriptorCpuGpuHandlePair* handles_out) {
   assert_true(submission_open_);

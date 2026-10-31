@@ -30,6 +30,7 @@
 #include "gpu/video.h"
 #include "xenia/dao_live_settings.h"
 #include "gpu/frame_history.h"
+#include "gpu/texture_pack.h"
 
 using namespace dao::kernel;
 namespace fs = std::filesystem;
@@ -347,7 +348,10 @@ int main(int argc, char** argv)
     // DAO_GPU=null runs without rendering (null command processor).
     const char* gpuMode = getenv("DAO_GPU");
     if (!(gpuMode && strcmp(gpuMode, "null") == 0))
+    {
+        dao::gpu::StartTexturePackIndex(gameRoot);
         dao::gpu::InitializeXeniaGraphics(userRoot);
+    }
 
     // DAO_TEST_KEYBOARD=<seconds>: shows the on-screen keyboard that long after start
     // (to test it without reaching character creation) and logs the outcome.

@@ -108,6 +108,9 @@ class SharedMemory {
   // the CPU hasn't written it since: its GPU copy is newer than the CPU's.
   bool IsRangeWrittenByGpu(uint32_t start, uint32_t length);
 
+  // DAO: the guest memory, for the texture cache's texture pack lookups.
+  Memory& DaoMemory() const { return memory_; }
+
  protected:
   SharedMemory(Memory& memory);
   // Call in implementation-specific initialization.

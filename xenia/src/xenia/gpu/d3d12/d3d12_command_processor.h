@@ -149,6 +149,13 @@ class D3D12CommandProcessor final : public CommandProcessor {
   // fail)!
   uint32_t RequestPersistentViewBindlessDescriptor();
   void ReleaseViewBindlessDescriptorImmediately(uint32_t descriptor_index);
+  // DAO texture packs: release a descriptor or a resource once the current
+  // submission has completed (the resource is AddRef'd).
+  void DaoReleaseViewBindlessDescriptorLater(uint32_t descriptor_index);
+  void DaoReleaseResourceLater(ID3D12Resource* resource);
+  // DAO texture packs: a texture's resource and views have changed, so the
+  // next draw writes its texture bindings anew even if their keys haven't.
+  void DaoInvalidateTextureBindings();
   // Request non-contiguous CBV/SRV/UAV descriptors for use only within the next
   // draw or dispatch command done for internal purposes. May change the current
   // descriptor heap. If the unbounded SRV range for bindless resources is also

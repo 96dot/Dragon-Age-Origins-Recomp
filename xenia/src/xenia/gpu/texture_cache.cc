@@ -65,9 +65,53 @@ DEFINE_bool(tiled_shared_memory, true,
             "Enable tiled/sparse resources for efficient large address space "
             "support. Disable for graphics debugger compatibility.",
             "GPU.Debug");
+DEFINE_bool(dao_texture_log, false,
+            "Log a content hash of each 2D texture's base level as it loads "
+            "(texture pack research).",
+            "GPU.Debug");
 
 namespace xe {
 namespace gpu {
+
+uint64_t TextureCache::DaoTextureId(
+    const Texture& texture, const dao_texture_pack::Index& index) const {
+  const TextureKey& key = texture.key();
+  if (key.dimension != xenos::DataDimension::k2DOrStacked ||
+      key.scaled_resolve || key.GetDepthOrArraySize() != 1) {
+    return 0;
+  }
+  uint32_t base = key.base_page << 12;
+  const uint8_t* data =
+      shared_memory().DaoMemory().TranslatePhysical<const uint8_t*>(base);
+  return index.Identify(
+      data,
+      std::min(size_t(dao_texture_pack::kMaxIdBytes),
+               size_t(SharedMemory::kBufferSize - base)),
+      key.GetWidth(), key.GetHeight());
+}
+
+TextureCache::Texture* TextureCache::DaoFindTexture(
+    const TextureKey& key) const {
+  auto it = textures_.find(key);
+  return it != textures_.end() ? it->second.get() : nullptr;
+}
+
+void TextureCache::DaoLogTextureLoad(const Texture& texture) const {
+  const TextureKey& key = texture.key();
+  if (!cvars::dao_texture_log ||
+      key.dimension != xenos::DataDimension::k2DOrStacked ||
+      key.scaled_resolve ||
+      texture.GetGuestBaseSize() < dao_texture_pack::kMaxIdBytes) {
+    return;
+  }
+  const uint8_t* data =
+      shared_memory().DaoMemory().TranslatePhysical<const uint8_t*>(
+          key.base_page << 12);
+  XELOGI("DAO texture load: id {:016X} {}x{} format {} tiled {} endian {} base {:08X}",
+         dao_texture_pack::Hash(data, dao_texture_pack::kMaxIdBytes),
+         key.GetWidth(), key.GetHeight(), uint32_t(key.format),
+         uint32_t(key.tiled), uint32_t(key.endianness), key.base_page << 12);
+}
 
 const TextureCache::LoadShaderInfo
     TextureCache::load_shader_info_[kLoadShaderCount] = {
@@ -870,6 +914,9 @@ void TextureCache::LoadTexturesData(Texture** textures, uint32_t n_textures) {
             (index_mips_outdated & (1ULL << i)) != 0)) {
       continue;
     }
+    if (index_base_outdated & (1ULL << i)) {
+      DaoLogTextureLoad(texture);
+    }
 
     // reque for makeuptodatandwatch
     textures[i] = &texture;
@@ -962,6 +1009,9 @@ bool TextureCache::LoadTextureData(Texture& texture) {
   if (!LoadTextureDataFromResidentMemoryImpl(texture, base_outdated,
                                              mips_outdated)) {
     return false;
+  }
+  if (base_outdated) {
+    DaoLogTextureLoad(texture);
   }
 
   // Mark the ranges as uploaded and watch them. This is needed for scaled
