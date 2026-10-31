@@ -251,8 +251,8 @@ class ShaderStorageWriter {
     }
 
     // DAO: read from the start. An "a+" stream's initial read position is the
-    // beginning on Windows and glibc, but the end on bionic (BSD stdio, Android),
-    // where the header then always read as missing and the storage was reset at
+    // beginning on Windows and glibc, but the end with BSD stdio (bionic on
+    // Android, also macOS), where the header then always read as missing and the storage was reset at
     // every start. Writes still go to the end (append mode).
     xe::filesystem::Seek(pipeline_storage_file_, 0, SEEK_SET);
 
