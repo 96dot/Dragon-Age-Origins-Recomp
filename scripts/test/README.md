@@ -103,6 +103,23 @@ turns it on in every 3D scene, not only conversations, for testing it anywhere (
 scales the blur's size, for tuning. In game, F8 turns it off and on (not saved), to
 compare. Its GPU time is the "depth of field" mark of `DAO_GPU_TIMING=1`.
 
+## Texture packs
+
+Put a pack (or a folder junction to one) in `texture packs\` next to the repo's `game\`.
+`xenia.dao_texture_log=true` logs to `xenia.log` each pack texture swapped in (with the
+graphics memory in use), refused over the budget, or sent back to the game's, and the
+identity of each game texture of 64 KB or more as it loads. For the budget, a small
+`video.texture_pack_memory=64` shows refusals and swaps back on the walk:
+
+```
+EXE=<build>/DAORecomp/DAORecomp.exe CAPTURE=40 scripts/test/run_game.sh <out> 110 scripts/test/inputs/walk.txt video.texture_pack_memory=64 xenia.dao_texture_log=true
+```
+
+Count swaps with `grep -c "swapped in ("` (plain "swapped in" also matches the "not
+swapped in" refusals), and compare the frame pacing with the pack off
+(`video.texture_packs=false`): the `VdSwap #` lines of `dao.log`, 600 frames apart, should
+stay 10.00 s apart.
+
 ## Launcher and installer
 
 - `fake_steam.py <folder>`: a fake Steam for *Add to Steam* (with `DAO_STEAM_ROOT`, below);

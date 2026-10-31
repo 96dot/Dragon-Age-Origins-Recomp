@@ -406,7 +406,8 @@ conversation_fov = {}
 # Texture packs: PC .dds textures in the "texture packs" folder next to the game folder (in
 # any folders inside it) replace the game's of the same name, on the graphics card only.
 # texture_pack_max_size leaves out larger sizes (0 for none, or 1024, 2048, 4096, 8192), and
-# texture_pack_memory is the graphics memory they may take in MB (0: half the card's own).
+# texture_pack_memory is the graphics memory they may take in MB (0: half the card's own, at
+# least 256 MB).
 texture_packs = {}
 texture_pack_max_size = {}
 texture_pack_memory = {}

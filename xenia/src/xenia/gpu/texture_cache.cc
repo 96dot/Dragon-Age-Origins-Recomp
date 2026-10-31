@@ -66,28 +66,33 @@ DEFINE_bool(tiled_shared_memory, true,
             "support. Disable for graphics debugger compatibility.",
             "GPU.Debug");
 DEFINE_bool(dao_texture_log, false,
-            "Log a content hash of each 2D texture's base level as it loads "
-            "(texture pack research).",
+            "Texture packs: log the hash of the first 64 KB of each 2D "
+            "texture (of at least that much) as it loads, and the pack's "
+            "swaps, refusals over the memory budget and textures given back.",
             "GPU.Debug");
 
 namespace xe {
 namespace gpu {
 
-uint64_t TextureCache::DaoTextureId(
+const dao_texture_pack::Index::Entry* TextureCache::DaoTextureEntry(
     const Texture& texture, const dao_texture_pack::Index& index) const {
   const TextureKey& key = texture.key();
-  if (key.dimension != xenos::DataDimension::k2DOrStacked ||
-      key.scaled_resolve || key.GetDepthOrArraySize() != 1) {
-    return 0;
+  if (!DaoIsPlain2D(key)) {
+    return nullptr;
   }
+  // Memory a resolve has written holds the GPU's data, not what the CPU
+  // memory still has (the texture that was there before).
   uint32_t base = key.base_page << 12;
+  if (IsRangeEverResolved(base, std::max(texture.GetGuestBaseSize(),
+                                         uint32_t(1)))) {
+    return nullptr;
+  }
   const uint8_t* data =
       shared_memory().DaoMemory().TranslatePhysical<const uint8_t*>(base);
   return index.Identify(
-      data,
-      std::min(size_t(dao_texture_pack::kMaxIdBytes),
-               size_t(SharedMemory::kBufferSize - base)),
-      key.GetWidth(), key.GetHeight());
+      data, SharedMemory::kBufferSize - base,
+      dao_texture_pack::Shape(key.GetWidth(), key.GetHeight(),
+                              uint32_t(key.format)));
 }
 
 TextureCache::Texture* TextureCache::DaoFindTexture(
@@ -96,11 +101,14 @@ TextureCache::Texture* TextureCache::DaoFindTexture(
   return it != textures_.end() ? it->second.get() : nullptr;
 }
 
+bool TextureCache::DaoIsPlain2D(const TextureKey& key) {
+  return key.dimension == xenos::DataDimension::k2DOrStacked &&
+         !key.scaled_resolve && key.GetDepthOrArraySize() == 1;
+}
+
 void TextureCache::DaoLogTextureLoad(const Texture& texture) const {
   const TextureKey& key = texture.key();
-  if (!cvars::dao_texture_log ||
-      key.dimension != xenos::DataDimension::k2DOrStacked ||
-      key.scaled_resolve ||
+  if (!cvars::dao_texture_log || !DaoIsPlain2D(key) ||
       texture.GetGuestBaseSize() < dao_texture_pack::kMaxIdBytes) {
     return;
   }

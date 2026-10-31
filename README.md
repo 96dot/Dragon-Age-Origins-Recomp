@@ -362,17 +362,20 @@ first time the Mods page opens it explains this (`mods_warning_seen` in the
 *Options → Graphics → Manage mods* closes it and opens the launcher's Mods page.
 
 PC texture packs (`.dds` files, such as *AP Neural Enhanced Diffusion Textures* on Nexus
-Mods) go in `texture packs/`, next to `game/` (in any folders inside it; *Configure →
-Graphics → Open the texture packs folder* makes and opens it), and aren't converted: each
-replaces the game's texture of the same name on the graphics card only, so the game keeps
-its own small copies in the 360's 512 MB and the pack's can be any size. At startup the
-game matches the pack against its own textures (a few seconds, in the background), and
-loads the pack's files in the background as their textures appear, so a texture may
-sharpen a moment later. DXT1, DXT3, DXT5 and BC7 files are used; a mod's replacement of a
-texture wins over the pack. *Texture pack size limit* (`texture_pack_max_size` in the
-`[video]` section) loads larger textures at that size, and `texture_pack_memory` caps the
-graphics memory they take in MB (0, the default: half the graphics card's own; the least
-recently seen go back to the game's when it's full).
+Mods) go in `texture packs/`, next to `game/` (in any folders inside it; with *Configure →
+Graphics → Texture packs* on, *Open the texture packs folder* makes and opens it), and
+aren't converted: each replaces the game's texture of the same name on the graphics card
+only, so the game keeps its own small copies in the 360's 512 MB and the pack's can be up
+to 16384 pixels wide (and 512 MB a file). At startup the game matches the pack against its
+own textures (a second or two, in the background; textures already on screen by then are
+replaced once it's done), and loads the pack's files in the background as their textures
+appear, so a texture may sharpen a moment later. DXT1, DXT3, DXT5 and BC7 files replace
+the game's DXT textures; where a mod replaces a texture, the mod's stays (the pack only
+matches the game's own). *Texture pack size limit* (`texture_pack_max_size` in the
+`[video]` section) loads larger textures at that size, and `texture_pack_memory` (only in
+`config.toml`) caps the graphics memory they take in MB (0, the default: half the graphics
+card's own, at least 256 MB). When it's full, the pack's textures not seen for a second go
+back to the game's to make room, and those that still don't fit stay the game's.
 
 Photo mode starts from the START menu's *Photo Mode* row (below *Achievements*, which
 stays greyed: there are no achievements here) or by clicking both sticks (L3+R3) while

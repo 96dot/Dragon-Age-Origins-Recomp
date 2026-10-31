@@ -486,6 +486,7 @@ namespace dao::launcher
             s.anisotropicFiltering = defaults.anisotropicFiltering;
             s.texturePacks = defaults.texturePacks;
             s.texturePackMaxSize = defaults.texturePackMaxSize;
+            s.texturePackMemory = defaults.texturePackMemory;
             s.shadows = defaults.shadows;
             s.postProcessing = defaults.postProcessing;
             s.motionBlur = defaults.motionBlur;

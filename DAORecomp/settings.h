@@ -137,7 +137,8 @@ namespace dao
         int anisotropicFiltering = 0;
         // Texture packs (gpu/texture_pack.h): on, the largest width or height loaded
         // (one of kTexturePackMaxSizes; larger mips are left out), and the graphics
-        // memory they may take in MB (0: half the graphics card's own).
+        // memory they may take in MB (0: half the graphics card's own, at least 256 MB;
+        // only in config.toml).
         bool texturePacks = true;
         int texturePackMaxSize = 0;
         int texturePackMemory = 0;

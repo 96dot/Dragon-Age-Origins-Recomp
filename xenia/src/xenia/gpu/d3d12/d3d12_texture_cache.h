@@ -622,8 +622,8 @@ class D3D12TextureCache final : public TextureCache {
     std::filesystem::path file;
     uint32_t max_size;
   };
-  // A .dds read into an upload buffer, for a texture of its size and format
-  // (no resource: the file couldn't be used).
+  // A .dds read into an upload buffer, and the texture it's copied to (no
+  // resource: the file couldn't be used).
   struct DaoPackLoaded {
     TextureKey key;
     uint64_t id;
@@ -635,15 +635,24 @@ class D3D12TextureCache final : public TextureCache {
     uint64_t bytes = 0;
   };
 
+  // GPU thread, once a frame until the index is published: takes it, sets
+  // the budget, starts the loader and requests the textures already loaded.
+  void DaoPackStart();
+  // Has the loader read the pack's .dds for the texture, if it has one and
+  // it isn't in place, being read, unusable or over the budget.
+  void DaoPackRequest(D3D12Texture& texture);
   // On a texture's base level load: whether the pack's image (already in
   // place) stands for it, so the game's needn't load; otherwise the game's
-  // goes back in, and the pack's is requested if it has one.
-  bool DaoPackOnLoad(D3D12Texture& texture);
+  // goes back in (`reverted`), and the pack's is requested if it has one.
+  bool DaoPackOnLoad(D3D12Texture& texture, bool& reverted);
   // GPU thread, before a draw's textures: swaps in what the loader has read.
   void DaoPackSwapLoaded();
   // Back to the game's resource.
   void DaoPackRevert(D3D12Texture& texture);
-  // Frees replacements not used lately until `bytes` more fit the budget.
+  // A replacement's video memory is free.
+  void DaoPackFreed(uint64_t bytes);
+  // Frees replacements not used in the last second until `bytes` more fit
+  // the budget; whether they do.
   bool DaoPackMakeRoom(uint64_t bytes);
   // The texture's views are about to point elsewhere.
   void DaoPackReleaseDescriptors(D3D12Texture& texture);
@@ -749,17 +758,19 @@ class D3D12TextureCache final : public TextureCache {
 
   // DAO texture packs. GPU thread: the index (once published), the textures
   // replaced and their video memory, those whose .dds is being read, the ids
-  // whose .dds couldn't be used, whether bindings must be redone, and the
-  // bytes swapped in this submission.
+  // whose .dds couldn't be used and those that didn't fit the budget (until
+  // something frees memory), whether bindings must be redone, and the frame
+  // and the bytes swapped in during it.
   std::shared_ptr<const dao_texture_pack::Index> dao_pack_index_;
   std::vector<D3D12Texture*> dao_pack_replaced_;
   uint64_t dao_pack_bytes_ = 0;
   uint64_t dao_pack_budget_ = 0;
   std::unordered_set<TextureKey, TextureKey::Hasher> dao_pack_pending_;
   std::unordered_set<uint64_t> dao_pack_failed_;
+  std::unordered_set<uint64_t> dao_pack_over_budget_;
   bool dao_pack_rebind_ = false;
-  uint64_t dao_pack_submission_ = 0;
-  uint64_t dao_pack_submission_bytes_ = 0;
+  uint64_t dao_pack_frame_ = UINT64_MAX;
+  uint64_t dao_pack_frame_bytes_ = 0;
   // Shared with the loader thread (under the mutex): the jobs, what it has
   // read, and that read's upload memory.
   std::thread dao_pack_loader_;
