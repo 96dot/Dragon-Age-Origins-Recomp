@@ -84,6 +84,10 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   large to be a real one instead of allocating for it, and seeks both storage files to
   their start before reading their headers (BSD stdio, as on Android, starts an "a+"
   stream at the end; contributed by udarmolota for the Android port).
+- `gpu/shader_translator.cc`: the exec instruction loops stop at the end of the ucode,
+  and the memexport successor walk takes a target past the control flow as the end
+  instead of indexing with it. Shaders loaded from the storage file are not trusted,
+  and a crafted one read past its ucode buffer.
 - GPU: `gpu/command_processor.*`, `gpu/pm4_command_processor_implement.h`,
   `gpu/graphics_system.*`, `gpu/gpu_flags.cc`, `gpu/draw_util.*`, `gpu/primitive_processor.cc`,
   `gpu/shader_storage.h`, `gpu/shared_memory.*`, `gpu/texture_cache.*`.

@@ -232,6 +232,15 @@ void Shader::AnalyzeUcode(StringBuffer& ucode_disasm_buffer) {
           uint32_t successor_cf_index = successor_stack.back();
           successor_stack.pop_back();
 
+          // DAO: a target past the control flow (a jump, call or loop address,
+          // or the instruction after the last one) is taken as the end, not
+          // indexed: shaders loaded from the storage file are not trusted.
+          if (successor_cf_index >= cf_memexport_info_.size()) {
+            memexport_eM_potentially_written_before_end_ |=
+                eM_written_by_cf_instr;
+            continue;
+          }
+
           ControlFlowMemExportInfo& successor_memexport_info =
               cf_memexport_info_[successor_cf_index];
           if ((successor_memexport_info.eM_potentially_written_before &
@@ -351,10 +360,15 @@ void Shader::GatherExecInformation(
     ucode::VertexFetchInstruction& previous_vfetch_full,
     uint32_t& unique_texture_bindings, StringBuffer& ucode_disasm_buffer) {
   instr.Disassemble(&ucode_disasm_buffer);
+  // DAO: stop at the end of the ucode, an exec's address and count are not
+  // checked against it and shaders loaded from the storage file are not
+  // trusted.
+  uint32_t instr_offset_end =
+      std::min(instr.instruction_address + instr.instruction_count,
+               uint32_t(ucode_data_.size() / 3));
   uint32_t sequence = instr.sequence;
   for (uint32_t instr_offset = instr.instruction_address;
-       instr_offset < instr.instruction_address + instr.instruction_count;
-       ++instr_offset, sequence >>= 2) {
+       instr_offset < instr_offset_end; ++instr_offset, sequence >>= 2) {
     ucode_disasm_buffer.AppendFormat("/* {:4d}   */ ", instr_offset);
     if (sequence & 0b10) {
       ucode_disasm_buffer.Append("         serialize\n             ");
@@ -911,11 +925,15 @@ void ShaderTranslator::TranslateExecInstructions(
           ? cf_memexport_info[instr.dword_index].eM_potentially_written_before
           : 0;
 
-  const uint32_t* ucode_dwords = current_shader().ucode_data().data();
+  const std::vector<uint32_t>& ucode_data = current_shader().ucode_data();
+  const uint32_t* ucode_dwords = ucode_data.data();
+  // DAO: stop at the end of the ucode, as in Shader::GatherExecInformation.
+  uint32_t instr_offset_end =
+      std::min(instr.instruction_address + instr.instruction_count,
+               uint32_t(ucode_data.size() / 3));
   uint32_t sequence = instr.sequence;
   for (uint32_t instr_offset = instr.instruction_address;
-       instr_offset < instr.instruction_address + instr.instruction_count;
-       ++instr_offset, sequence >>= 2) {
+       instr_offset < instr_offset_end; ++instr_offset, sequence >>= 2) {
     const uint32_t* op_ptr = ucode_dwords + instr_offset * 3;
     if (sequence & 0b01) {
       auto& op = *reinterpret_cast<const FetchInstruction*>(op_ptr);
