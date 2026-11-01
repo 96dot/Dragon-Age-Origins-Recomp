@@ -682,6 +682,9 @@ bool RenderTargetCache::IsScaleNativeForPitch(
 }
 
 bool RenderTargetCache::IsDrawScaleNative() const {
+  if (dao_draw_native_) {
+    return true;
+  }
   auto rb_surface_info = register_file().Get<reg::RB_SURFACE_INFO>();
   // Same pitch normalization as in Update.
   uint32_t msaa_samples_x_log2 =
@@ -731,7 +734,8 @@ bool RenderTargetCache::Update(bool is_rasterization_done,
                                    (xenos::kEdramTileWidthSamples - 1)) /
                                   xenos::kEdramTileWidthSamples;
   // Scale class of all the surfaces of this draw.
-  bool scale_native = IsScaleNativeForPitch(pitch_tiles_at_32bpp, msaa_samples);
+  bool scale_native = dao_draw_native_ ||
+                      IsScaleNativeForPitch(pitch_tiles_at_32bpp, msaa_samples);
   if (!interlock_barrier_only) {
     uint32_t pitch_pixels_tile_aligned_scaled =
         pitch_tiles_at_32bpp *

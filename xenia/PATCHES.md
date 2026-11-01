@@ -60,7 +60,10 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   upscaler's image at the swap, waits and GPU-written memory reads (command
   processor, which also applies the gamma ramp to the generated frame);
   resolves straight from render targets into textures (render
-  target and texture caches); the frame latency wait, HDR output and scRGB
+  target and texture caches); the game's bloom drawn at the console's
+  resolution with resolution scaling (render target cache, `dao_native_bloom`:
+  its blur's taps are a console pixel apart and would leave gaps, showing as
+  copies of bright edges); the frame latency wait, HDR output and scRGB
   captures (presenter); device removed logging and `DAO_DRED` (provider).
 - `gpu/shaders/dao_*`, `ui/shaders/dao_*`: the upscaler's, resolves' and HDR
   output's shaders (compiled by `scripts/build_xenia_shaders.py`).
@@ -84,6 +87,7 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   and a crafted one read past its ucode buffer.
 - GPU: `gpu/command_processor.*`, `gpu/pm4_command_processor_implement.h`,
   `gpu/graphics_system.*`, `gpu/gpu_flags.cc`, `gpu/draw_util.*`, `gpu/primitive_processor.cc`,
+  `gpu/render_target_cache.*` (a draw the DAO hook makes native, whatever its pitch),
   `gpu/shader_storage.h`, `gpu/shared_memory.*`, `gpu/texture_cache.*`.
 - D3D12: `gpu/d3d12/d3d12_command_processor.*` (also low latency's markers at the
   swap), `d3d12_graphics_system.*`,

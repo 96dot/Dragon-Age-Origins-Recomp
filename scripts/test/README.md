@@ -103,6 +103,13 @@ turns it on in every 3D scene, not only conversations, for testing it anywhere (
 scales the blur's size, for tuning. In game, F8 turns it off and on (not saved), to
 compare. Its GPU time is the "depth of field" mark of `DAO_GPU_TIMING=1`.
 
+## Bloom
+
+With `resolution_scale` 2 and up, the game's bloom is drawn at the console's resolution
+(its passes' pixel shaders are in `xenia/src/xenia/gpu/d3d12/dao_render_target_cache.cc`).
+`xenia.dao_native_bloom=false` draws it at the resolution scale instead, for comparing:
+there its blur leaves gaps, and bright edges get offset copies (issue #11).
+
 ## Texture packs
 
 Put a pack (or a folder junction to one) in `texture packs\` next to the repo's `game\`.

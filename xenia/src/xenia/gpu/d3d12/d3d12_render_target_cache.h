@@ -69,6 +69,10 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
               reg::RB_DEPTHCONTROL normalized_depth_control,
               uint32_t normalized_color_mask, const Shader& vertex_shader,
               int32_t window_offset_tiles) override;
+  // DAO (dao_render_target_cache.cc): sets whether the draw renders native
+  // whatever its pitch (the game's bloom); called before the draw's shader
+  // modifications and Update.
+  void DaoOnDraw(uint64_t pixel_shader_hash);
 
   void InvalidateCommandListRenderTargets() {
     are_current_command_list_render_targets_valid_ = false;

@@ -2800,6 +2800,11 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
       pixel_shader && (pixel_shader->memexport_eM_written() != 0);
   const bool memexport_used = memexport_used_vertex || memexport_used_pixel;
 
+  // DAO: the draw's scale class, before anything uses it (the game's bloom
+  // draws native).
+  render_target_cache_->DaoOnDraw(
+      pixel_shader ? pixel_shader->ucode_data_hash() : 0);
+
   // A draw contributing to its VIZ ID without the kill bit counts
   // at hi-Z before the pixel shader can reject anything.
   if (!viz_survey && pixel_shader &&

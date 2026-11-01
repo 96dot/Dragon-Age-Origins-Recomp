@@ -1,7 +1,7 @@
 // DAO: plain resolves copied straight from the render target (rather than
 // from its dump to the EDRAM buffer), and the area they write for the
 // textures of the resolved memory (dao_texture_cache.cc): the render target
-// cache's part.
+// cache's part. And the game's bloom drawn at the console's resolution.
 #include "xenia/gpu/d3d12/d3d12_render_target_cache.h"
 
 #include <array>
@@ -19,10 +19,45 @@ DEFINE_bool(dao_resolve_to_textures, true,
             "Write plain render target resolves straight into the textures of "
             "the resolved memory, rather than untiling them at their next use.",
             "GPU");
+DEFINE_bool(dao_native_bloom, true,
+            "With resolution scaling, draw the game's bloom at the console's "
+            "resolution, as the console does: its blur's taps are a console "
+            "pixel apart, so at a higher resolution they leave gaps, and the "
+            "glow becomes offset copies of bright edges.",
+            "GPU");
 
 namespace xe {
 namespace gpu {
 namespace d3d12 {
+
+namespace {
+
+// The bloom's pixel shaders (microcode hashes; the shaders are the game
+// data's, which the title updates don't replace). At 640x360, half the
+// console's 1280x720: the scene's bright parts, then a blur, horizontal and
+// vertical (seven taps, their distance in console pixels from the vertex
+// shader's constants). The tonemapper (kTonemapPixelShader in
+// dao_upscale_impl.h) adds it to the scene.
+constexpr uint64_t kBloomBrightPassPixelShader = 0x51B90349C6D6D3DA;
+constexpr uint64_t kBloomBlurPixelShader = 0x44FF4F98F3485DB5;
+
+}  // namespace
+
+void D3D12RenderTargetCache::DaoOnDraw(uint64_t pixel_shader_hash) {
+  // Native render targets exist with host render targets only. The clears
+  // before the passes stay scaled (the same clear shader serves every pass);
+  // ownership transfers move the half-resolution target between the scales.
+  dao_draw_native_ = cvars::dao_native_bloom && IsDrawResolutionScaled() &&
+                     GetPath() == Path::kHostRenderTargets &&
+                     (pixel_shader_hash == kBloomBrightPassPixelShader ||
+                      pixel_shader_hash == kBloomBlurPixelShader);
+  static bool logged = false;
+  if (dao_draw_native_ && !logged) {
+    logged = true;
+    XELOGI("D3D12RenderTargetCache: drawing the game's bloom at the console's "
+           "resolution");
+  }
+}
 
 namespace shaders {
 #include "xenia/gpu/shaders/bytecode/d3d12_5_1/dao_resolve_direct_cs.h"

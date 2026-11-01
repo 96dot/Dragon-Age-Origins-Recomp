@@ -195,7 +195,7 @@ class RenderTargetCache {
   // Compares the tile-aligned width, so it's a pure function of key fields.
   bool IsScaleNativeForPitch(uint32_t pitch_tiles_at_32bpp,
                              xenos::MsaaSamples msaa_samples) const;
-  // Same for RB_SURFACE_INFO
+  // Same for RB_SURFACE_INFO, or a draw made native by the DAO hook below.
   bool IsDrawScaleNative() const;
   // Scale of the current draw, the global scale or 1x1 under the threshold.
   // Everything per-draw must use these so a draw never mixes scales.
@@ -656,6 +656,11 @@ class RenderTargetCache {
   // To be called by the implementation when interlocked writes to all of the
   // EDRAM memory are committed with a memory barrier.
   void PixelShaderInterlockFullEdramBarrierPlaced();
+
+  // DAO: the current draw renders native whatever its pitch (host render
+  // targets with resolution scaling only), set for each draw that reaches its
+  // shader modifications and Update (D3D12RenderTargetCache::DaoOnDraw).
+  bool dao_draw_native_ = false;
 
  private:
   const RegisterFile& register_file_;
