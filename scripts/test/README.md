@@ -122,7 +122,9 @@ stay 10.00 s apart.
 
 `dao.log`'s "Texture packs:" line says "found" when the match was made again and "saved
 results" when it came from `userdata/texture_pack_index.bin` (delete it to make it
-again), and how many files were skipped for each reason.
+again), how many of the game's textures the files replace and how many of those are
+copies of their pictures under other names, and how many files were skipped for each
+reason.
 `EXTRA="DAO_TEXTURE_PACKS_TOGGLE_AT=60,80"` presses F9 at those seconds (test windows
 aren't focused, so the key can't be pressed): the game's own textures from 60 s, the
 pack's again from 80 s.

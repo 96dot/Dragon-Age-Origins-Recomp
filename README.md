@@ -369,7 +369,8 @@ only, so the game keeps its own small copies in the 360's 512 MB and the pack's 
 to 16384 pixels wide (and 512 MB a file). The game matches the packs against its own
 textures the first time (a second or two, in the background; textures already on screen by
 then are replaced once it's done) and saves the results in
-`userdata/texture_pack_index.bin`, so later starts only check that no file changed. It
+`userdata/texture_pack_index.bin`, so later starts only check that no file (and not the
+size limit) changed. It
 loads the pack's files in the background as their textures appear, so a texture may
 sharpen a moment later. In the game, F9 switches between the packs' textures and the
 game's own, to compare (not saved).
@@ -380,7 +381,13 @@ folder). The limits:
 
 - **Names:** a file replaces the game's texture of the same name, from the base game's
   archives only: files made for the PC version's own textures (such as the `*__pal`
-  terrain palettes) and for DLC areas aren't used.
+  terrain palettes) and for DLC areas aren't used. It also replaces the game's copies of
+  that texture's picture under other names (the same size, smaller or larger: the half
+  and quarter size ones distant models use, terrain copies of props' textures, and the
+  like: about 1,500 pairs, listed
+  in `DAORecomp/gpu/texture_copies.inc` by `scripts/find_texture_copies.py`), loaded at
+  the copy's scale. Textures the console version re-laid out (such as the castle rugs'
+  `*_fixed` ones) aren't copies, and a pack needs files of their own names for them.
 - **Kinds:** the game's colour textures (DXT1, DXT3 or DXT5 on the 360) take DXT1, DXT3,
   DXT5 or BC7 files, and its two-channel normal maps (DXN) take BC5 files. PC normal maps
   saved as DXT5 don't fit those. Uncompressed textures, cube maps, and textures the game
@@ -496,6 +503,10 @@ are tested, and the traps found so far. The build details are below.
   (`DAORecomp/ui/menu_movies.cpp`) and serves the results from `userdata/generated/`.
 - `scripts/check_include_case.py` finds `#include`s whose case differs from the file on
   disk, which only breaks builds on Linux.
+- `scripts/find_texture_copies.py <game folder>` writes `DAORecomp/gpu/texture_copies.inc`,
+  the game's textures that are copies of another's picture (for texture packs), by
+  comparing the base game's `.xds` pictures. It needs the game's files, NumPy and Pillow,
+  so CI doesn't run it: run it again after changing how it compares.
 - `DAO_CONSOLE=1` shows the log (`userdata/dao.log`) as it's written, in the console
   the game was started from or a new one. The game has no console of its own, but
   output redirected to a file or a pipe gets the log without this. Closing a console it

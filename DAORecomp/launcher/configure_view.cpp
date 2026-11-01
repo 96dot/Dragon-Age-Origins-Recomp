@@ -169,7 +169,12 @@ namespace dao::launcher
                 const size_t byMods = size_t(std::ranges::count_if(pack.usedNames,
                     [&](const std::string& name) { return modTextures.contains(name); }));
                 const std::string name = pack.name.empty() ? "Files in the folder itself" : pack.name;
-                ImGui::TextWrapped("%s: %zu of %zu files used", name.c_str(), pack.used - byMods, pack.files);
+                if (pack.copies)
+                    ImGui::TextWrapped("%s: %zu of %zu files used, also for %zu of the game's copies of their "
+                                       "textures under other names (such as smaller ones for distant models)",
+                        name.c_str(), pack.used - byMods, pack.files, pack.copies);
+                else
+                    ImGui::TextWrapped("%s: %zu of %zu files used", name.c_str(), pack.used - byMods, pack.files);
                 if (pack.skipped.empty() && !byMods)
                     continue;
                 ImGui::PushID(name.c_str());

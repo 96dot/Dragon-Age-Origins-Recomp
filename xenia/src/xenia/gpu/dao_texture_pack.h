@@ -255,6 +255,11 @@ struct Index {
     // The start's hash and the sample's: unique among the entries (the index
     // builder keeps the first of the same id).
     uint64_t id;
+    // The largest width or height of `file` to load (its larger mips are
+    // skipped), 0 for any: the size limit, or for a game texture that is a
+    // smaller copy of another's picture, the size loaded for the original at
+    // the copy's scale.
+    uint32_t max_size;
   };
   // Hash of the start (the first min(kMaxIdBytes, texel bytes)) -> the
   // entries with it.
@@ -264,9 +269,6 @@ struct Index {
   // The Shape of every entry: others aren't hashed.
   std::unordered_set<uint64_t> shapes;
   size_t entry_count = 0;
-  // The largest width or height of a replacement to load (its larger mips
-  // are skipped), 0 for any.
-  uint32_t max_size = 0;
   // Video memory the replacements may take, in bytes (0: half the graphics
   // card's own, at least 256 MB).
   uint64_t memory_budget = 0;

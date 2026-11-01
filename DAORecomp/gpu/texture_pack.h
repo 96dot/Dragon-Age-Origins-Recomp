@@ -6,8 +6,10 @@
 // thread of its own at startup (saved in userdata/texture_pack_index.bin, and
 // found again only when a pack or the game's files change) and handed to the
 // texture cache (xenia/gpu/dao_texture_pack.h); textures that loaded before it
-// was ready are replaced once it is. The launcher shows the same check's
-// results: which files are used and why the others aren't.
+// was ready are replaced once it is. A file also replaces the game's copies of its
+// texture's picture under other names (the same size, smaller or larger, such as
+// the smaller ones distant models use), at the copy's scale. The launcher shows the
+// same check's results: which files are used and why the others aren't.
 
 #include <cstdint>
 #include <filesystem>
@@ -65,6 +67,10 @@ namespace dao::gpu
         {
             std::string name;
             size_t files = 0, used = 0;
+            // The game's textures that are copies of a used file's texture's picture
+            // under other names (any size: smaller ones for distant models, and the
+            // like), replaced too.
+            size_t copies = 0;
             // The files used, by lower-case name without the extension (for
             // finding those a mod replaces).
             std::vector<std::string> usedNames;

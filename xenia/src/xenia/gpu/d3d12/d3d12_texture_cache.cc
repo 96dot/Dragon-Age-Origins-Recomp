@@ -1425,7 +1425,7 @@ void D3D12TextureCache::DaoPackRequest(D3D12Texture& texture) {
   {
     std::lock_guard<std::mutex> lock(dao_pack_mutex_);
     dao_pack_jobs_.push_back(
-        {texture.key(), entry->id, entry->file, dao_pack_index_->max_size});
+        {texture.key(), entry->id, entry->file, entry->max_size});
   }
   dao_pack_cv_.notify_all();
 }
