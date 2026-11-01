@@ -348,11 +348,12 @@ namespace dao::launcher
             st.updater->Check(st.settings.updateChannel);
 
         // Screenshot mode: kFramesPerShot frames per shot (main, the configure tabs,
-        // mods, save backups, DLC, and the update's page if the check finds one), captured
-        // on the last one, after the view has faded in.
+        // mods, texture packs, save backups, DLC, and the update's page if the check
+        // finds one), captured on the last one, after the view has faded in.
         constexpr int kFramesPerShot = 20;
         constexpr int kModsShot = 1 + kConfigureTabs;
-        constexpr int kSavesShot = kModsShot + 1;
+        constexpr int kPacksShot = kModsShot + 1;
+        constexpr int kSavesShot = kPacksShot + 1;
         constexpr int kDlcShot = kSavesShot + 1;
         constexpr int kUpdateShot = kDlcShot + 1;
         // While minimized or in the background: at most this often, to save power.
@@ -417,11 +418,11 @@ namespace dao::launcher
             const int shot = st.screenshotDir.empty() || st.padScript ? -1 : st.screenshotFrame / kFramesPerShot;
             const bool shotStart = shot >= 0 && st.screenshotFrame % kFramesPerShot == 0;
             const bool shotNow = shot >= 0 && st.screenshotFrame % kFramesPerShot == kFramesPerShot - 1;
-            // The mods page waits for mods being added, DLC for its reading, the update's
-            // page for the check.
+            // The mods page waits for mods being added, texture packs for their check,
+            // DLC for its reading, the update's page for the check.
             const bool updateShot = shot == kUpdateShot;
             const bool shotWaits = (shot == kModsShot && (ReadingMods(st) || AddingMods(st))) ||
-                (shot == kDlcShot && ReadingDlc(st)) ||
+                (shot == kPacksShot && CheckingTexturePacks(st)) || (shot == kDlcShot && ReadingDlc(st)) ||
                 (updateShot && st.updater->GetState() == Updater::State::Checking) ||
                 (st.setupOnly && (st.isoArt.valid() || st.installer.GetState() == InstallRunner::State::Running));
             // (The update's page only when there's an update.)
@@ -437,6 +438,7 @@ namespace dao::launcher
             {
                 SetView(st, shot == 0 ? View::Main
                         : shot == kModsShot ? View::Mods
+                        : shot == kPacksShot ? View::TexturePacks
                         : shot == kSavesShot ? View::Saves
                         : shot == kDlcShot ? View::Dlc
                         : updateShot ? View::Update
@@ -471,6 +473,9 @@ namespace dao::launcher
                 break;
             case View::Mods:
                 ModsView(st, layout);
+                break;
+            case View::TexturePacks:
+                TexturePacksView(st, layout);
                 break;
             case View::Saves:
                 SavesView(st, layout);

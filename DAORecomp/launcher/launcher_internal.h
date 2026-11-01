@@ -2,8 +2,9 @@
 // The launcher's parts (see launcher.h), shared by its files: launcher.cpp has
 // the command line, the window and its frame loop, widgets.cpp the helpers the
 // views draw with, and the views a file each (title_screen.cpp, configure_view.cpp,
-// mods_view.cpp, saves_view.cpp, dlc_view.cpp, update_view.cpp, install_view.cpp,
-// and add_to_steam.cpp's popup); gamepad.cpp feeds the gamepads to ImGui.
+// mods_view.cpp, texture_packs_view.cpp, saves_view.cpp, dlc_view.cpp,
+// update_view.cpp, install_view.cpp, and add_to_steam.cpp's popup); gamepad.cpp
+// feeds the gamepads to ImGui.
 
 // (Every part had these when the launcher was one file.)
 #include <future>
@@ -87,7 +88,7 @@ namespace dao::launcher
     // Button hints: the icon's height, the gap to the label, the label's size.
     constexpr float kHintIcon = 30.0f, kHintGap = 8.0f, kHintTextSize = 19.0f;
 
-    enum class View { Main, Configure, Mods, Saves, Dlc, Update, Install };
+    enum class View { Main, Configure, Mods, TexturePacks, Saves, Dlc, Update, Install };
     // Graphics, Display, Patches, Advanced.
     constexpr int kConfigureTabs = 4;
 
@@ -242,7 +243,7 @@ namespace dao::launcher
         bool modsRead = false;
         // config.toml couldn't be parsed: it isn't saved over (defaults are shown).
         bool settingsUnreadable = false;
-        // Texture packs (Configure > Graphics): the check running in the background
+        // Texture Packs: the check running in the background
         // (stopped with packStop), whether to check again after it, and the last
         // one's results.
         std::future<gpu::TexturePackReport> packCheck;
@@ -433,6 +434,24 @@ namespace dao::launcher
     void PanelFrame(State& st, const Layout& layout, const char* title, Restore restore);
     void ShowContents(State& st, const Layout& layout, float left, Contents contents, bool resetScroll = false);
 
+    // A setting as the game's menus show it: the name above the picker or slider,
+    // which `widget` adds as "##value", returning whether it changed.
+    template <typename Widget>
+    bool Row(const char* label, Widget&& widget)
+    {
+        Label(label);
+        ImGui::PushID(label);
+        ImGui::SetNextItemWidth(RowWidth());
+        const bool changed = widget();
+        ImGui::PopID();
+        return changed;
+    }
+
+    inline bool ComboRow(const char* label, int* value, const char* const* items, int count)
+    {
+        return Row(label, [&] { return ImGui::Combo("##value", value, items, count); });
+    }
+
     // title_screen.cpp: the title screen and its menu, and loading the game's art
     // (for every view).
     void DrawScene(ImDrawList* draw, const State& st, const Layout& layout, float dim, double t);
@@ -460,6 +479,10 @@ namespace dao::launcher
     void FinishAddingMods(State& st);
     void FinishConverting(State& st);
     void ModsView(State& st, const Layout& layout);
+
+    // texture_packs_view.cpp: Texture Packs, their settings and which files are used.
+    bool CheckingTexturePacks(const State& st);
+    void TexturePacksView(State& st, const Layout& layout);
 
     // saves_view.cpp: Save Backups, putting back a save the game saved over.
     void SavesView(State& st, const Layout& layout);

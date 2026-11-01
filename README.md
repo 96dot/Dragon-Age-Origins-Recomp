@@ -362,9 +362,9 @@ first time the Mods page opens it explains this (`mods_warning_seen` in the
 *Options → Graphics → Manage mods* closes it and opens the launcher's Mods page.
 
 PC texture packs (`.dds` files, such as *AP Neural Enhanced Diffusion Textures* on Nexus
-Mods) go in `texture packs/`, next to `game/` (in any folders inside it; with *Configure →
-Graphics → Texture packs* on, *Open the texture packs folder* makes and opens it), and
-aren't converted: each replaces the game's texture of the same name on the graphics card
+Mods) go in `texture packs/`, next to `game/` (in any folders inside it; the launcher's
+*Texture Packs* page turns them on and off, and its *Open the texture packs folder* makes
+and opens it), and aren't converted: each replaces the game's texture of the same name on the graphics card
 only, so the game keeps its own small copies in the 360's 512 MB and the pack's can be up
 to 16384 pixels wide (and 512 MB a file). The game matches the packs against its own
 textures the first time (a second or two, in the background; textures already on screen by
@@ -375,8 +375,7 @@ loads the pack's files in the background as their textures appear, so a texture 
 sharpen a moment later. In the game, F9 switches between the packs' textures and the
 game's own, to compare (not saved).
 
-Below the texture pack settings, the launcher shows how many of each pack's files are
-used, and under *Files not used*, why the others aren't (*Check again* after changing the
+The launcher's *Texture Packs* page shows how many of each pack's files are used, and under *Files not used*, why the others aren't (*Check again* after changing the
 folder). The limits:
 
 - **Names:** a file replaces the game's texture of the same name, from the base game's
@@ -398,9 +397,9 @@ folder). The limits:
   matches the game's own); where two packs have a file of the same name, the one in the
   later folder (alphabetically) is used.
 
-*Texture pack size limit* (`texture_pack_max_size` in the `[video]` section) loads larger
-textures at that size, for the Steam Deck or cards with 4 GB or less, and *Texture pack
-memory* (`texture_pack_memory`, in MB) caps the graphics memory they take (*Automatic*,
+On that page, *Size limit* (`texture_pack_max_size` in the `[video]` section) loads larger
+textures at that size, for the Steam Deck or cards with 4 GB or less, and *Memory*
+(`texture_pack_memory`, in MB) caps the graphics memory they take (*Automatic*,
 the default: half the graphics card's own, at least 256 MB). When it's full, the pack's
 textures not seen for a second go back to the game's to make room, and those that still
 don't fit stay the game's.
@@ -518,8 +517,9 @@ are tested, and the traps found so far. The build details are below.
     memory it faulted on (Direct3D 12 DRED).
   - `DAO_LAUNCHER_SCREENSHOTS=<folder>`: saves each launcher view (the title screen,
     the four Configure tabs, Mods: its list, even before the first-open notice was
-    read, Save Backups, Downloadable Content) as `launcher_0.bmp` to `launcher_7.bmp`, and
-    the Update page as `launcher_8.bmp` when the update check finds a release, then quits.
+    read, Texture Packs, Save Backups, Downloadable Content) as `launcher_0.bmp` to
+    `launcher_8.bmp`, and the Update page as `launcher_9.bmp` when the update check finds
+    a release, then quits.
   - `DAO_LAUNCHER_DROP=<path>|<path>...`: with `DAO_LAUNCHER_SCREENSHOTS`, adds those
     as if dropped on the window (tests adding mods and installing packages, and in setup
     its disc image and DLC fields).

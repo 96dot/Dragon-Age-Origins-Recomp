@@ -121,7 +121,10 @@ namespace dao::launcher
         constexpr const char* kMenuBar = "startmenu2_IF4";
         constexpr const char* kMenuBarDown = "startmenu2_I101";
         constexpr float kMenuBarX = 766.0f, kMenuBarHalfHeight = 31.0f, kMenuHitLeft = 846.0f;
+        // The menu starts at kMenuTop, or higher when it's longer than seven items, so
+        // that the last stays at kMenuBottom.
         constexpr float kMenuRight = 1170.0f, kMenuTop = 385.0f, kMenuStep = 34.0f, kMenuTextSize = 24.0f;
+        constexpr float kMenuBottom = kMenuTop + 6 * kMenuStep;
         // Without the bars' art: a band fading in from the left, this high and dark.
         constexpr float kMenuBandHalfHeight = 14.0f, kMenuBandOpacity = 0.8f;
 
@@ -324,8 +327,11 @@ namespace dao::launcher
         const bool canPlay = st.gameFound && !ModsBusy(st) && st.steamStep == SteamStep::None;
         DrawLogo(st, layout);
 
-        // The items' rows, from the top.
-        float row = kMenuTop;
+        // The items' rows, from the top: Play, Configure, Mods, Texture Packs, Save
+        // Backups, Downloadable Content, Update (once found), Exit (the count is the
+        // item calls below).
+        const int items = FoundRelease(st) ? 8 : 7;
+        float row = std::min(kMenuTop, kMenuBottom - float(items - 1) * kMenuStep);
         const auto item = [&](const char* label, bool enabled = true) {
             const bool pressed = MenuItem(st, layout, label, row, enabled);
             row += kMenuStep;
@@ -339,6 +345,8 @@ namespace dao::launcher
             SetView(st, View::Configure);
         if (item("Mods"))
             SetView(st, View::Mods);
+        if (item("Texture Packs"))
+            SetView(st, View::TexturePacks);
         if (item("Save Backups"))
             SetView(st, View::Saves);
         if (item("Downloadable Content"))

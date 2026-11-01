@@ -68,7 +68,7 @@ has no game code or data, and must never get any.
 | `DAORecomp/apu/` | Audio: the 360's XMA audio format and the game's audio thread. |
 | `DAORecomp/input/` | SDL3 controllers and keyboard, and `DAO_INPUT_SCRIPT` for scripted tests. |
 | `DAORecomp/ui/` | What's drawn over or into the game: the Graphics tab and START menu rows (ActionScript in `.as` files), photo mode, cheats, the on-screen keyboard, the shared overlay. |
-| `DAORecomp/launcher/` | The launcher (Dear ImGui on SDL3): Configure, Mods, Save Backups, DLC, Install, Update. |
+| `DAORecomp/launcher/` | The launcher (Dear ImGui on SDL3): Configure, Mods, Texture Packs, Save Backups, DLC, Install, Update. |
 | `DAORecomp/content/` | Xbox 360 packages (the STFS format), installing DLC and title updates, saves and their backups. |
 | `DAORecomp/mods/` | Mods, and the PC-to-360 mod converter (`convert/`). The `mods/` folder at the top is the player's, not code. |
 | `DAORecomp/patches/` | Optional code patches the launcher lists. |
@@ -112,7 +112,8 @@ choices like `lowLatency`, a number like `fov`):
    writes the whole file from one text with a `{}` for each value: add the line and
    its comment there, and the value at the same position in the arguments after it);
    `ClampSettings` for numbers; the start-up log (`LoadSettings`).
-3. The launcher (`DAORecomp/launcher/configure_view.cpp`): a row, with its list of names
+3. The launcher (`DAORecomp/launcher/configure_view.cpp`, or `texture_packs_view.cpp` for
+   texture packs): a row, with its list of names
    tied to the enum by a `static_assert`.
 4. If the game's Graphics tab shows it: `DAORecomp/ui/graphics_menu.cpp` (its key, whether
    it waits for a restart, `ApplyLive`) and `DAORecomp/ui/graphics_tab.as`, then
