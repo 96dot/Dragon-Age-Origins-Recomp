@@ -12,7 +12,8 @@ x86-64 Windows program, with a Direct3D 12 renderer based on Xenia's. It adds:
   only real frames are shown on one that can't keep up)
 - depth of field in conversations (and, it seems, cutscenes), from the scene's depth,
   with temporal upscaling: the people nearest the camera sharp, the scene behind them
-  blurred, as a film camera's lens does
+  blurred, as a film camera's lens does; the game's own (the console's), lighter blur
+  can be turned off, leaving only this one
 - SMAA anti-aliasing, an option without temporal upscaling in place of the game's 2xMSAA
   (the default): faster (the scene is drawn once, single-sampled), edges about as smooth
 - HDR output: on an HDR display the 3D scenes are rendered in HDR (the game's
@@ -270,6 +271,10 @@ launcher) makes the game faster on low-power devices such as the Steam Deck. Mot
 blur is off by default; Low and High cost GPU time while the scene moves. Depth of field
 in conversations is on by default; it costs GPU time in conversations and cutscenes only
 (about 0.85 ms a frame at 4K on an RX 9070 XT, by the GPU timing's "depth of field" mark).
+The recomp's depth of field blurs over the game's own (the console's), a lighter blur
+behind and in front of the people speaking. Turning off *Console depth of field in
+conversations* (on by default) leaves the recomp's alone, or, without temporal upscaling,
+none; it saves about 0.2 ms a frame in conversations (RX 9070 XT, at 1440p).
 With temporal upscaling off, anti-aliasing SMAA is faster than the game's 2xMSAA: about
 20% less GPU time a frame at 720p and 15% at 4K on an RX 9070 XT (SMAA's own passes take
 0.06 ms and 0.3 ms of it). Working on the finished image, it may let thin details shimmer

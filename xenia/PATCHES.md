@@ -71,6 +71,9 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   captures (presenter); device removed logging and `DAO_DRED` (provider). The
   depth of field's blend also reads its blur bilinear rather than point
   sampled (the sampler set in `d3d12_command_processor.cc`'s `UpdateBindings`).
+  With `dao_console_depth_of_field` off, the game's depth of field's passes
+  are skipped (`IssueDraw` returns before drawing them) and its blend draws
+  the scene alone (its MaxBlur constant zeroed in `UpdateBindings`).
 - `gpu/shaders/dao_*`, `ui/shaders/dao_*`: the upscaler's, SMAA's, resolves' and HDR
   output's shaders (compiled by `scripts/build_xenia_shaders.py`).
 

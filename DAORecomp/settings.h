@@ -117,6 +117,10 @@ namespace dao
         // the picture sharp, the scene behind them (and anything in front of them)
         // blurred, as a film camera's lens does.
         bool depthOfField = true;
+        // The game's own depth of field in conversations (the console's, a light blur
+        // behind and in front of the people speaking; the recomp's above blurs over it).
+        // Off, the scene stays sharp: for the recomp's alone, or none.
+        bool consoleDepthOfField = true;
         // The camera's field of view in gameplay, and in conversations and cutscenes
         // (scaling each shot's own): horizontal degrees at 16:9, kMinFov to kMaxFov
         // (gpu/camera_fov.cpp).

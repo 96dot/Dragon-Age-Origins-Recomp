@@ -137,6 +137,7 @@ var ROWS = [
     { key: "MotionBlur", label: "Motion blur (with temporal upscaling)", values: [0, 1, 2],
       labels: ["Off", "Low", "High"] },
     { key: "DepthOfField", label: "Depth of field in conversations (with temporal upscaling)", toggle: true },
+    { key: "ConsoleDepthOfField", label: "Console depth of field in conversations", toggle: true },
     { header: "Camera" },
     { key: "Fov", label: "Field of view", values: FOV, labels: FovLabels() },
     { key: "ConversationFov", label: "Field of view in conversations", values: FOV, labels: FovLabels() },

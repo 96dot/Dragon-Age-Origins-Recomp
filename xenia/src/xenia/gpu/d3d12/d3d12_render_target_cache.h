@@ -71,15 +71,22 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
               int32_t window_offset_tiles) override;
   // DAO (dao_render_target_cache.cc): sets whether the draw renders native
   // whatever its pitch (the game's bloom, and its depth of field's
-  // half-resolution passes), and which of its pixel shader's samplers is made
-  // bilinear; called before the draw's shader modifications, Update and the
-  // bindings.
-  void DaoOnDraw(uint64_t pixel_shader_hash);
+  // half-resolution passes), which of its pixel shader's samplers is made
+  // bilinear, and which float constant is zeroed; called before the draw's
+  // shader modifications, Update and the bindings. False for a draw to skip
+  // (the game's depth of field's half-resolution passes while it's off).
+  bool DaoOnDraw(uint64_t pixel_shader_hash);
   // The fetch constant of the draw's pixel shader sampler to make bilinear
   // (the game's depth of field's blend reading its half-resolution blur), or
   // UINT32_MAX.
   uint32_t dao_linear_fetch_constant() const {
     return dao_linear_fetch_constant_;
+  }
+  // The draw's pixel shader float constant whose x is taken as 0 (the game's
+  // depth of field's blend's MaxBlur, when its passes were skipped: it draws
+  // the scene alone), or UINT32_MAX.
+  uint32_t dao_zeroed_float_constant_pixel() const {
+    return dao_zeroed_float_constant_pixel_;
   }
 
   void InvalidateCommandListRenderTargets() {
@@ -883,8 +890,12 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
   // Clearing 64bpp color.
   ID3D12PipelineState* resolve_rov_clear_64bpp_pipeline_ = nullptr;
 
-  // DAO: see dao_linear_fetch_constant.
+  // DAO: see dao_linear_fetch_constant and dao_zeroed_float_constant_pixel.
   uint32_t dao_linear_fetch_constant_ = UINT32_MAX;
+  uint32_t dao_zeroed_float_constant_pixel_ = UINT32_MAX;
+  // DAO: the game's depth of field's passes are being skipped: from its first
+  // pass to the first draw at a larger pitch than theirs (its blend).
+  bool dao_skipping_game_dof_ = false;
 };
 
 }  // namespace d3d12

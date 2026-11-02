@@ -42,6 +42,7 @@ DECLARE_int32(anisotropic_override);
 DECLARE_int32(dao_motion_blur);
 DECLARE_bool(dao_smaa);
 DECLARE_bool(dao_depth_of_field);
+DECLARE_bool(dao_console_depth_of_field);
 DECLARE_int32(dao_low_latency);
 DECLARE_double(present_hdr_paper_white);
 DECLARE_double(present_hdr_peak);
@@ -153,6 +154,7 @@ namespace dao::gpu
         live.motion_blur = cvars::dao_motion_blur;
         live.smaa = cvars::dao_smaa;
         live.depth_of_field = cvars::dao_depth_of_field;
+        live.console_depth_of_field = cvars::dao_console_depth_of_field;
         live.hdr_paper_white = cvars::present_hdr_paper_white;
         live.hdr_peak = cvars::present_hdr_peak;
         live.low_latency = cvars::dao_low_latency;

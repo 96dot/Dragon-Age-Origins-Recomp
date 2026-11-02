@@ -26,6 +26,8 @@ struct Values {
   // dao_depth_of_field (default true, as Settings and the cvar have); F8 toggles
   // it too (DAORecomp/main.cpp), not saved.
   std::atomic<bool> depth_of_field{true};
+  // dao_console_depth_of_field (default true, as Settings and the cvar have).
+  std::atomic<bool> console_depth_of_field{true};
   // Texture packs' images in use; F9 (DAORecomp/main.cpp, and its test hook
   // DAO_TEXTURE_PACKS_TOGGLE_AT) shows the game's own instead, to compare;
   // not saved.

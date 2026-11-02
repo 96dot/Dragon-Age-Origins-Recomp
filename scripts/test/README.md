@@ -119,9 +119,11 @@ same way, then blended over the scene with bilinear filtering (the console's poi
 sampling shows sharp blocks at a higher resolution).
 `xenia.dao_native_depth_of_field=false` turns both off: the passes are drawn at the
 scale, where the blurred background gets thin streaks (issue #13), and the blend
-point-samples again. `inputs/new_game.txt` reaches a conversation: it starts a new game
-from the title screen (with a save, so New Game is one below Continue) and plays into
-its first conversation, from about 300 s.
+point-samples again. `video.console_depth_of_field=false` (the setting, or its cvar
+`xenia.dao_console_depth_of_field=false`) turns the game's depth of field off: its passes
+are skipped, and its blend draws the scene alone. `inputs/new_game.txt` reaches a
+conversation: it starts a new game from the title screen (with a save, so New Game is one
+below Continue) and plays into its first conversation, from about 300 s.
 
 ## Texture packs
 

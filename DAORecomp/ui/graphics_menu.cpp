@@ -44,6 +44,7 @@ namespace dao::ui
             PostProcessing,
             MotionBlur,
             DepthOfField,
+            ConsoleDepthOfField,
             Fov,
             ConversationFov,
             Hdr,
@@ -76,6 +77,7 @@ namespace dao::ui
             { "PostProcessing", false },
             { "MotionBlur", false },
             { "DepthOfField", false },
+            { "ConsoleDepthOfField", false },
             { "Fov", false },
             { "ConversationFov", false },
             { "Hdr", true },
@@ -188,6 +190,7 @@ namespace dao::ui
             case Key::PostProcessing: return s.postProcessing;
             case Key::MotionBlur: return s.motionBlur;
             case Key::DepthOfField: return s.depthOfField;
+            case Key::ConsoleDepthOfField: return s.consoleDepthOfField;
             case Key::Fov: return s.fov;
             case Key::ConversationFov: return s.conversationFov;
             case Key::Hdr: return s.hdr;
@@ -234,6 +237,7 @@ namespace dao::ui
             case Key::PostProcessing: s.postProcessing = whole != 0; break;
             case Key::MotionBlur: s.motionBlur = whole; break;
             case Key::DepthOfField: s.depthOfField = whole != 0; break;
+            case Key::ConsoleDepthOfField: s.consoleDepthOfField = whole != 0; break;
             case Key::Fov: s.fov = whole; break;
             case Key::ConversationFov: s.conversationFov = whole; break;
             case Key::Hdr: s.hdr = whole != 0; break;
@@ -278,6 +282,7 @@ namespace dao::ui
             case Key::PostProcessing: to.postProcessing = from.postProcessing; break;
             case Key::MotionBlur: to.motionBlur = from.motionBlur; break;
             case Key::DepthOfField: to.depthOfField = from.depthOfField; break;
+            case Key::ConsoleDepthOfField: to.consoleDepthOfField = from.consoleDepthOfField; break;
             case Key::Fov: to.fov = from.fov; break;
             case Key::ConversationFov: to.conversationFov = from.conversationFov; break;
             case Key::Hdr: to.hdr = from.hdr; break;
@@ -311,6 +316,7 @@ namespace dao::ui
             case Key::PostProcessing: s_postProcessing = s.postProcessing; break;
             case Key::MotionBlur: live.motion_blur = s.motionBlur; break;
             case Key::DepthOfField: live.depth_of_field = s.depthOfField; break;
+            case Key::ConsoleDepthOfField: live.console_depth_of_field = s.consoleDepthOfField; break;
             case Key::Fov:
             case Key::ConversationFov: gpu::SetCameraFov(s.fov, s.conversationFov); break;
             case Key::HdrPaperWhite: live.hdr_paper_white = s.hdrPaperWhite; break;

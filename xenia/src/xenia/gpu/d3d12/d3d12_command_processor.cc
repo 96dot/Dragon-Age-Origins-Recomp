@@ -2801,9 +2801,12 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
   const bool memexport_used = memexport_used_vertex || memexport_used_pixel;
 
   // DAO: the draw's scale class, before anything uses it (the game's bloom
-  // and depth of field passes draw at the console's resolution).
-  render_target_cache_->DaoOnDraw(
-      pixel_shader ? pixel_shader->ucode_data_hash() : 0);
+  // and depth of field passes draw at the console's resolution); or the draw
+  // skipped (the game's depth of field's passes while it's off).
+  if (!render_target_cache_->DaoOnDraw(
+          pixel_shader ? pixel_shader->ucode_data_hash() : 0)) {
+    return true;
+  }
 
   // A draw contributing to its VIZ ID without the kill bit counts
   // at hi-Z before the pixel shader can reject anything.
@@ -5151,6 +5154,13 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
     std::memset(current_float_constant_map_pixel_, 0,
                 sizeof(current_float_constant_map_pixel_));
   }
+  // DAO: a pixel shader float constant zeroed for this draw (DaoOnDraw's; the
+  // next draw uploads the guest's again).
+  const uint32_t dao_zeroed_float_constant =
+      render_target_cache_->dao_zeroed_float_constant_pixel();
+  if (dao_zeroed_float_constant != UINT32_MAX) {
+    cbuffer_binding_float_pixel_.up_to_date = false;
+  }
 
   // Write the constant buffer data.
   if (!cbuffer_binding_system_.up_to_date) {
@@ -5223,11 +5233,17 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
                       &regs[XE_GPU_REG_SHADER_CONSTANT_256_X + (i << 8) +
                             (float_constant_index << 2)],
                       4 * sizeof(float));
+          if (((i << 6) | float_constant_index) == dao_zeroed_float_constant) {
+            const float zero = 0.0f;
+            std::memcpy(float_constants, &zero, sizeof(zero));
+          }
           float_constants += 4 * sizeof(float);
         }
       }
     }
-    cbuffer_binding_float_pixel_.up_to_date = true;
+    // (With a constant zeroed, left stale: the next draw uploads the guest's.)
+    cbuffer_binding_float_pixel_.up_to_date =
+        dao_zeroed_float_constant == UINT32_MAX;
     current_graphics_root_up_to_date_ &=
         ~(1u << root_parameter_float_constants_pixel);
   }

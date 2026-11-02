@@ -157,6 +157,9 @@ namespace dao::launcher
             HelpText("Keeps the people nearest the camera sharp and blurs the scene behind and in front of "
                      "them, as a film camera's lens does. Needs temporal upscaling; costs GPU time in "
                      "conversations and cutscenes only.");
+            ImGui::Checkbox("Console depth of field in conversations", &s.consoleDepthOfField);
+            HelpText("The game's own blur (the console's), lighter. With both on, the one above blurs over "
+                     "it; turn this off to leave only the one above.");
 
             Section("Camera");
             FovRow("Field of view", &s.fov);
@@ -341,6 +344,7 @@ namespace dao::launcher
             s.postProcessing = defaults.postProcessing;
             s.motionBlur = defaults.motionBlur;
             s.depthOfField = defaults.depthOfField;
+            s.consoleDepthOfField = defaults.consoleDepthOfField;
             s.fov = defaults.fov;
             s.conversationFov = defaults.conversationFov;
         }

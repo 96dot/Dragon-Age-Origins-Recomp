@@ -251,6 +251,7 @@ namespace dao
                 s.motionBlur = level;
         }
         s.depthOfField = video["depth_of_field"].value_or(s.depthOfField);
+        s.consoleDepthOfField = video["console_depth_of_field"].value_or(s.consoleDepthOfField);
         s.fov = video["fov"].value_or(s.fov);
         s.conversationFov = video["conversation_fov"].value_or(s.conversationFov);
         s.texturePacks = video["texture_packs"].value_or(s.texturePacks);
@@ -378,6 +379,10 @@ motion_blur = "{}"
 # nearest the camera sharp, the scene behind them (and anything in front of them) blurred,
 # as a film camera's lens does. Only with temporal upscaling (it blurs the upscaled scene).
 depth_of_field = {}
+# The game's own depth of field in conversations, on by default: the console's light blur
+# behind and in front of the people speaking (depth_of_field blurs over it). Off, the scene
+# stays sharp, for depth_of_field's blur alone (or none without temporal upscaling).
+console_depth_of_field = {}
 # The camera's field of view, in degrees across at 16:9 (80 to 120; 91 is the game's own):
 # in gameplay, and in conversations and cutscenes (scaling each shot's own).
 fov = {}
@@ -405,7 +410,7 @@ window_height = {}
             s.frameGeneration,
             s.vsync, LowLatencyName(s.lowLatency), s.frameRate,
             s.hdr, s.hdrPaperWhite, s.hdrPeak, HdrQualityName(s.hdrHighQuality), s.anisotropicFiltering, s.shadows, s.postProcessing,
-            MotionBlurName(s.motionBlur), s.depthOfField, s.fov, s.conversationFov, s.texturePacks,
+            MotionBlurName(s.motionBlur), s.depthOfField, s.consoleDepthOfField, s.fov, s.conversationFov, s.texturePacks,
             s.texturePackMaxSize, s.texturePackMemory, s.fullscreen,
             s.windowWidth, s.windowHeight);
         for (const auto& [id, enabled] : s.patches)
@@ -466,6 +471,7 @@ window_height = {}
         SetXeniaCvar("dao_hdr_scrgb", toml::value<bool>(s.hdrHighQuality));
         SetXeniaCvar("dao_motion_blur", toml::value<int64_t>(s.motionBlur));
         SetXeniaCvar("dao_depth_of_field", toml::value<bool>(s.depthOfField));
+        SetXeniaCvar("dao_console_depth_of_field", toml::value<bool>(s.consoleDepthOfField));
         if (s.anisotropicFiltering)
             SetXeniaCvar("anisotropic_override", toml::value<int64_t>(XeniaAnisotropicLevel(s.anisotropicFiltering)));
         try
@@ -494,6 +500,8 @@ window_height = {}
             LOGI("Settings: SMAA");
         if (s.motionBlur)
             LOGI("Settings: motion blur {}", MotionBlurName(s.motionBlur));
+        if (!s.consoleDepthOfField)
+            LOGI("Settings: console depth of field off");
         if (s.lowLatency)
             LOGI("Settings: low latency {}", LowLatencyName(s.lowLatency));
         if (s.fov != kOriginalFov || s.conversationFov != kOriginalFov)
