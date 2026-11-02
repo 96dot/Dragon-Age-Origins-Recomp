@@ -1,7 +1,8 @@
 // DAO: plain resolves copied straight from the render target (rather than
 // from its dump to the EDRAM buffer), and the area they write for the
 // textures of the resolved memory (dao_texture_cache.cc): the render target
-// cache's part. And the game's bloom drawn at the console's resolution.
+// cache's part. And the game's bloom and depth of field drawn at the
+// console's resolution.
 #include "xenia/gpu/d3d12/d3d12_render_target_cache.h"
 
 #include <array>
@@ -25,6 +26,16 @@ DEFINE_bool(dao_native_bloom, true,
             "pixel apart, so at a higher resolution they leave gaps, and the "
             "glow becomes offset copies of bright edges.",
             "GPU");
+DEFINE_bool(dao_native_depth_of_field, true,
+            "With resolution scaling, draw the half-resolution passes of the "
+            "game's own depth of field (in conversations; not the recomp's, "
+            "dao_depth_of_field) at the console's resolution, as the console "
+            "does: their blurs' taps are spaced in console pixels, so at a "
+            "higher resolution they leave gaps, and the blurred background "
+            "gets thin streaks. And blend the blur over the scene with "
+            "bilinear filtering: the console's point sampling shows sharp "
+            "blocks at a higher resolution.",
+            "GPU");
 
 namespace xe {
 namespace gpu {
@@ -41,21 +52,74 @@ namespace {
 constexpr uint64_t kBloomBrightPassPixelShader = 0x51B90349C6D6D3DA;
 constexpr uint64_t kBloomBlurPixelShader = 0x44FF4F98F3485DB5;
 
+// The game's own depth of field's half-resolution pixel shaders (microcode
+// hashes, as the bloom's; the da_dof effect of postprocesseffects.erf, in
+// conversations, not the recomp's depth of field of dao_upscale_dof.cc). At
+// 640x360, as a frame trace shows: the scene and its blur radius from the
+// depth, then a blur, horizontal, then vertical, then a small one against
+// artifacts. The full-resolution pass that blends the result over the scene
+// stays at the scale; it reads the blur (texture fetch constant 2) with the
+// fetch constant's point sampling, made bilinear.
+constexpr uint64_t kGameDofDownsamplePixelShader = 0xFC6987BE51851414;
+constexpr uint64_t kGameDofBlurHPixelShader = 0x3E2773AC40F6AB27;
+constexpr uint64_t kGameDofBlurVPixelShader = 0xC9D916DC2650BA46;
+constexpr uint64_t kGameDofSmallBlurPixelShader = 0xFE45551A76BA89A0;
+constexpr uint64_t kGameDofBlendPixelShader = 0xCB448B49D98D1E8A;
+constexpr uint32_t kGameDofBlendBlurFetchConstant = 2;
+
+// The pitch of the bloom's and the depth of field's render targets, half the
+// console's width. A draw of one of their shaders at a larger pitch (their
+// blur material serves other effects too, the Fade's at full resolution)
+// stays at the scale.
+constexpr uint32_t kHalfResolutionPitch = 640;
+
 }  // namespace
 
 void D3D12RenderTargetCache::DaoOnDraw(uint64_t pixel_shader_hash) {
+  dao_draw_native_ = false;
+  dao_linear_fetch_constant_ = UINT32_MAX;
+  if (!IsDrawResolutionScaled()) {
+    return;
+  }
+  // The depth of field's blend reads its blur bilinear. The bilinear sampler
+  // skips GetSamplerParameters' fallback to point sampling for a format the
+  // host can't filter, so the guest format is checked: k_8_8_8_8's host
+  // formats (R8G8B8A8 UNORM and SNORM) are filterable on every D3D12 device.
+  if (cvars::dao_native_depth_of_field &&
+      pixel_shader_hash == kGameDofBlendPixelShader &&
+      register_file().GetTextureFetch(kGameDofBlendBlurFetchConstant).format ==
+          xenos::TextureFormat::k_8_8_8_8) {
+    dao_linear_fetch_constant_ = kGameDofBlendBlurFetchConstant;
+  }
   // Native render targets exist with host render targets only. The clears
   // before the passes stay scaled (the same clear shader serves every pass);
-  // ownership transfers move the half-resolution target between the scales.
-  dao_draw_native_ = cvars::dao_native_bloom && IsDrawResolutionScaled() &&
-                     GetPath() == Path::kHostRenderTargets &&
+  // ownership transfers move the half-resolution targets between the scales.
+  if (GetPath() != Path::kHostRenderTargets ||
+      register_file().Get<reg::RB_SURFACE_INFO>().surface_pitch >
+          kHalfResolutionPitch) {
+    return;
+  }
+  const bool bloom = cvars::dao_native_bloom &&
                      (pixel_shader_hash == kBloomBrightPassPixelShader ||
                       pixel_shader_hash == kBloomBlurPixelShader);
-  static bool logged = false;
-  if (dao_draw_native_ && !logged) {
-    logged = true;
+  const bool depth_of_field =
+      cvars::dao_native_depth_of_field &&
+      (pixel_shader_hash == kGameDofDownsamplePixelShader ||
+       pixel_shader_hash == kGameDofBlurHPixelShader ||
+       pixel_shader_hash == kGameDofBlurVPixelShader ||
+       pixel_shader_hash == kGameDofSmallBlurPixelShader);
+  dao_draw_native_ = bloom || depth_of_field;
+  static bool bloom_logged = false;
+  if (bloom && !bloom_logged) {
+    bloom_logged = true;
     XELOGI("D3D12RenderTargetCache: drawing the game's bloom at the console's "
            "resolution");
+  }
+  static bool depth_of_field_logged = false;
+  if (depth_of_field && !depth_of_field_logged) {
+    depth_of_field_logged = true;
+    XELOGI("D3D12RenderTargetCache: drawing the game's own depth of field at "
+           "the console's resolution");
   }
 }
 

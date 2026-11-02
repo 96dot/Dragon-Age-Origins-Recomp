@@ -2801,7 +2801,7 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
   const bool memexport_used = memexport_used_vertex || memexport_used_pixel;
 
   // DAO: the draw's scale class, before anything uses it (the game's bloom
-  // draws native).
+  // and depth of field passes draw at the console's resolution).
   render_target_cache_->DaoOnDraw(
       pixel_shader ? pixel_shader->ucode_data_hash() : 0);
 
@@ -5339,6 +5339,18 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
         }
         D3D12TextureCache::SamplerParameters parameters =
             texture_cache_->GetSamplerParameters(samplers_pixel_derefed[i]);
+        // DAO: bilinear for the fetch constant DaoOnDraw picks (the game's
+        // depth of field's blend), where the shader takes the filter from
+        // the fetch constant (DaoOnDraw checks the format can be filtered).
+        if (samplers_pixel_derefed[i].fetch_constant ==
+                render_target_cache_->dao_linear_fetch_constant() &&
+            samplers_pixel_derefed[i].mag_filter ==
+                xenos::TextureFilter::kUseFetchConst &&
+            samplers_pixel_derefed[i].min_filter ==
+                xenos::TextureFilter::kUseFetchConst) {
+          parameters.mag_linear = 1;
+          parameters.min_linear = 1;
+        }
         if (current_samplers_pixel_[i] != parameters) {
           current_samplers_pixel_[i] = parameters;
           cbuffer_binding_descriptor_indices_pixel_.up_to_date = false;

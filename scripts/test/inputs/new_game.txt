@@ -1,0 +1,15 @@
+# Title (with a save: Continue, then New Game) -> New Game -> the defaults (a human
+# noble warrior) -> the first conversation (Arl Howe and the teyrn in Castle Cousland's
+# hall, from about 300 s), where the game's own depth of field runs. Needs
+# skip_intro_logos (run_game.sh sets it). The intro movie plays in full (A doesn't skip
+# it); the name keyboard opens about 253 s in (A types, START is Done); on Appearance and
+# Voice, Y is Quick Play. Saves the run makes are removed by run_game.sh.
+every 2 START 0.2 from 10 until 26   # past "Press START" and any notices
+27 DOWN 0.2                          # Continue -> New Game
+29 A 0.2
+every 1.5 A 0.15 from 32 until 255   # campaign, movie, character creation, name
+258 START 0.2                        # name keyboard: Done
+264 START 0.2                        # again, should the first come early
+270 Y 0.2                            # Quick Play
+275 Y 0.2                            # again, likewise
+every 1.5 A 0.15 from 280 until 600  # difficulty, then through the conversation

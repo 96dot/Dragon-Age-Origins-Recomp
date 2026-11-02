@@ -63,8 +63,13 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   target and texture caches); the game's bloom drawn at the console's
   resolution with resolution scaling (render target cache, `dao_native_bloom`:
   its blur's taps are a console pixel apart and would leave gaps, showing as
-  copies of bright edges); the frame latency wait, HDR output and scRGB
-  captures (presenter); device removed logging and `DAO_DRED` (provider).
+  copies of bright edges), and its depth of field's half-resolution passes the
+  same way (`dao_native_depth_of_field`: streaks in the blurred background),
+  both only at their half-resolution pitch (their blur material serves the
+  Fade at full resolution too); the frame latency wait, HDR output and scRGB
+  captures (presenter); device removed logging and `DAO_DRED` (provider). The
+  depth of field's blend also reads its blur bilinear rather than point
+  sampled (the sampler set in `d3d12_command_processor.cc`'s `UpdateBindings`).
 - `gpu/shaders/dao_*`, `ui/shaders/dao_*`: the upscaler's, resolves' and HDR
   output's shaders (compiled by `scripts/build_xenia_shaders.py`).
 

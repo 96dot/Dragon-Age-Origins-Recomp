@@ -70,9 +70,17 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
               uint32_t normalized_color_mask, const Shader& vertex_shader,
               int32_t window_offset_tiles) override;
   // DAO (dao_render_target_cache.cc): sets whether the draw renders native
-  // whatever its pitch (the game's bloom); called before the draw's shader
-  // modifications and Update.
+  // whatever its pitch (the game's bloom, and its depth of field's
+  // half-resolution passes), and which of its pixel shader's samplers is made
+  // bilinear; called before the draw's shader modifications, Update and the
+  // bindings.
   void DaoOnDraw(uint64_t pixel_shader_hash);
+  // The fetch constant of the draw's pixel shader sampler to make bilinear
+  // (the game's depth of field's blend reading its half-resolution blur), or
+  // UINT32_MAX.
+  uint32_t dao_linear_fetch_constant() const {
+    return dao_linear_fetch_constant_;
+  }
 
   void InvalidateCommandListRenderTargets() {
     are_current_command_list_render_targets_valid_ = false;
@@ -874,6 +882,9 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
   ID3D12PipelineState* resolve_rov_clear_32bpp_pipeline_ = nullptr;
   // Clearing 64bpp color.
   ID3D12PipelineState* resolve_rov_clear_64bpp_pipeline_ = nullptr;
+
+  // DAO: see dao_linear_fetch_constant.
+  uint32_t dao_linear_fetch_constant_ = UINT32_MAX;
 };
 
 }  // namespace d3d12
