@@ -416,14 +416,14 @@ DAO_IMPORT_AS(VdRetrainEDRAMWorker, dao::imp::VdRetrainEDRAMWorker)
 DAO_IMPORT_AS(VdRetrainEDRAM, dao::imp::VdRetrainEDRAM)
 DAO_IMPORT_AS(VdSwap, dao::imp::VdSwap)
 
-// While the temporal upscaler antialiases the 3D scene, it's rendered in one
-// tile without the game's 2xMSAA: the second predicated tile and the
+// While the temporal upscaler or SMAA antialiases the 3D scene, it's rendered
+// in one tile without the game's 2xMSAA: the second predicated tile and the
 // multisampling only cost GPU time (a GPU-bound 4K frame 10.4 -> 9.3 ms).
 // sub_82661640 gives the scene's tile count, and its tile rectangles at *r4:
 // with 2xMSAA, 2 tiles, 1280x512 and 1280x208, at 82144D64 (8215E5A8 in Title
 // Update 6). It's called every frame, sets the MSAA type global itself, and the
 // engine makes its render targets from the result, so the scene can go back to
-// 2xMSAA (the upscaler failing) from one frame to the next.
+// 2xMSAA (the upscaler failing, or SMAA turned off) from one frame to the next.
 constexpr dao::kernel::GameAddress kSceneMsaaType{ 0x8316E35C, 0x8323E83C }; // D3DMULTISAMPLE_TYPE, 0: none
 constexpr dao::kernel::GameAddress kSceneTileRects{ 0x82144D64, 0x8215E5A8 }; // D3DRECT {x1, y1, x2, y2}[2]
 static void SceneTilesHook(PPCContext& ctx, uint8_t* base, PPCFunc* original)

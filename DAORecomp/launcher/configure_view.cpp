@@ -23,6 +23,9 @@ namespace dao::launcher
         constexpr const char* kTemporalUpscalers[] = { "Off", "Auto (FSR 4 where supported, else FSR 3.1)",
             "FidelityFX FSR 4", "FidelityFX FSR 3.1", "Intel XeSS-SR", "NVIDIA DLSS 4.5 (experimental)" };
         static_assert(std::size(kTemporalUpscalers) == size_t(kMaxTemporalUpscaler) + 1);
+        // In AntiAliasing's order.
+        constexpr const char* kAntiAliasingNames[] = { "2xMSAA (original)", "SMAA" };
+        static_assert(std::size(kAntiAliasingNames) == size_t(kMaxAntiAliasing) + 1);
         // The names of kAnisotropicLevels.
         constexpr const char* kAnisotropicNames[] = { "Game default", "2x", "4x", "8x", "16x" };
         static_assert(std::size(kAnisotropicNames) == std::size(kAnisotropicLevels));
@@ -102,6 +105,14 @@ namespace dao::launcher
                      "(experimental, untested) on NVIDIA RTX GPUs; where they can't, FSR is used. XeSS-SR and "
                      "DLSS don't sharpen; the Upscaler row's sharpness (FSR 1 or CAS) still applies to them. "
                      "Off is fastest on a Steam Deck.");
+            ImGui::Spacing();
+            ImGui::BeginDisabled(s.temporalUpscaler != TemporalUpscaler::Off);
+            int antiAliasing = int(s.antiAliasing);
+            if (ComboRow("Anti-aliasing", &antiAliasing, kAntiAliasingNames, int(std::size(kAntiAliasingNames))))
+                s.antiAliasing = AntiAliasing(antiAliasing);
+            ImGui::EndDisabled();
+            HelpText("With temporal upscaling off: the game's own 2xMSAA, or SMAA, about as smooth and faster "
+                     "(the scene is drawn once, single-sampled).");
             ImGui::Spacing();
             ImGui::BeginDisabled(s.temporalUpscaler == TemporalUpscaler::Off);
             ImGui::Checkbox("FSR Frame Generation", &s.frameGeneration);
@@ -321,6 +332,7 @@ namespace dao::launcher
             s.resolutionScale = defaults.resolutionScale;
             s.temporalUpscaler = defaults.temporalUpscaler;
             s.temporalSharpness = defaults.temporalSharpness;
+            s.antiAliasing = defaults.antiAliasing;
             s.frameGeneration = defaults.frameGeneration;
             s.upscaler = defaults.upscaler;
             s.sharpness = defaults.sharpness;

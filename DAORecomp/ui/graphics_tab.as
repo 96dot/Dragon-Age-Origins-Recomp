@@ -122,6 +122,8 @@ var ROWS = [
     { key: "TemporalUpscaler", label: "Temporal upscaling", restart: true, values: [0, 1, 2, 3, 4, 5],
       labels: ["Off", "Auto", "FidelityFX FSR 4", "FidelityFX FSR 3.1", "Intel XeSS-SR",
                "NVIDIA DLSS 4.5 (experimental)"] },
+    { key: "AntiAliasing", label: "Anti-aliasing (without temporal upscaling)", values: [0, 1],
+      labels: ["2xMSAA (original)", "SMAA"] },
     { key: "TemporalSharpness", label: "Temporal sharpening (FSR)", slider: SLIDER_STEPS },
     { key: "FrameGeneration", label: "FSR Frame Generation (with temporal upscaling)", toggle: true },
     { key: "Upscaler", label: "Output upscaler", values: [0, 1, 2],

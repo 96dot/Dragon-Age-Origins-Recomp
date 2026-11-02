@@ -24,7 +24,7 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   CPU modules (interrupts, guest threads, the window).
 - `dao_live_settings.h`: the settings the in-game Graphics menu changes while the
   game runs (vsync, low latency, temporal sharpness, anisotropic filtering, motion
-  blur, depth of field, frame generation, HDR paper white and peak; and, for depth of
+  blur, SMAA, depth of field, frame generation, HDR paper white and peak; and, for depth of
   field, whether its camera is in a conversation's or cutscene's shots, and its field of
   view), as atomics the GPU, presenter and render threads read instead of their cvars
   (also in the upstream files `d3d12_texture_cache.cc` and `d3d12_presenter.cc`).
@@ -37,7 +37,8 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   back to FSR), `dao_upscale_motion.cc` the motion vectors,
   `dao_upscale_hdr.cc` true HDR, `dao_motion_blur.cc` motion blur,
   `dao_upscale_dof.cc` depth of field,
-  `dao_upscale_fg.cc` frame generation (FSR 3.1).
+  `dao_upscale_fg.cc` frame generation (FSR 3.1), and `dao_smaa.cc` SMAA without
+  temporal upscaling (its shader and lookup textures in `thirdparty/smaa`).
 - `ui/dao_frame_pacer.cc`: frame generation's presentation: the presenter's
   thread that paints each generated frame and, half a frame later, the real one.
 - `ui/d3d12/dao_low_latency.*`: low latency (AMD Radeon Anti-Lag 2, the header in
@@ -70,7 +71,7 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   captures (presenter); device removed logging and `DAO_DRED` (provider). The
   depth of field's blend also reads its blur bilinear rather than point
   sampled (the sampler set in `d3d12_command_processor.cc`'s `UpdateBindings`).
-- `gpu/shaders/dao_*`, `ui/shaders/dao_*`: the upscaler's, resolves' and HDR
+- `gpu/shaders/dao_*`, `ui/shaders/dao_*`: the upscaler's, SMAA's, resolves' and HDR
   output's shaders (compiled by `scripts/build_xenia_shaders.py`).
 
 ## Changed upstream files

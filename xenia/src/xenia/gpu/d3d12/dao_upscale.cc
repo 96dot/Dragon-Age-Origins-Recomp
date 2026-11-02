@@ -27,8 +27,8 @@ DEFINE_double(dao_temporal_sharpness, 0.3,
               "Sharpening after temporal upscaling with FSR, 0 (off) to 1.",
               "GPU");
 DEFINE_bool(dao_single_sample_scene, true,
-            "With temporal upscaling, render 3D scenes in one tile without "
-            "2xMSAA (the upscaler antialiases them).",
+            "With temporal upscaling or SMAA, render 3D scenes in one tile "
+            "without 2xMSAA (the upscaler or SMAA antialiases them).",
             "GPU");
 DEFINE_bool(dao_motion_vectors, true,
             "Motion vectors for temporal upscaling (false: zero motion, for "
@@ -305,6 +305,7 @@ bool DaoUpscalerImpl::Initialize() {
     return false;
   }
   dof_available_ = InitializeDepthOfField();
+  smaa_available_ = InitializeSmaa();
   motion_available_ = InitializeMotion();
   if (!motion_available_) {
     XELOGW("Upscaler: motion vectors unavailable");
@@ -315,7 +316,8 @@ bool DaoUpscalerImpl::Initialize() {
   if (jitter_active_) {
     backend_->Prepare(true_hdr_);
   }
-  single_sample_scene_ = jitter_active_ && cvars::dao_single_sample_scene;
+  // (Used with SMAA too, which EndFrame turns on from the first swap.)
+  single_sample_scene_ = cvars::dao_single_sample_scene;
   last_swap_ = std::chrono::steady_clock::now();
   return true;
 }
@@ -429,8 +431,10 @@ void DaoUpscalerImpl::OnDraw(const RegisterFile& regs,
   hudless_pending_ = false;
   hdr_pending_ = false;
   motion_pending_ = false;
-  // Without temporal upscaling, true HDR needs only the image before the UI.
-  if (!jitter_active_ && !true_hdr_) {
+  // Without temporal upscaling, only true HDR and SMAA use the draws: for the
+  // image before the UI, found after the scene's resolve (single-sampled, the
+  // first resolve after the scene's draws counted below, or its clear).
+  if (!jitter_active_ && !true_hdr_ && !smaa_active_) {
     return;
   }
   const auto surface = regs.Get<reg::RB_SURFACE_INFO>();
@@ -456,11 +460,28 @@ void DaoUpscalerImpl::OnDraw(const RegisterFile& regs,
   const bool scene_geometry =
       !regs.Get<reg::PA_CL_VTE_CNTL>().vtx_xy_fmt &&
       !regs.Get<reg::PA_CL_CLIP_CNTL>().clip_disable;
-  if (jitter_active_ && depth_control.z_enable &&
+  // Single-sampled, the game still clears the scene's color multisampled. A
+  // resolve right after the clear is the scene's too: the main menu draws
+  // nothing in it.
+  if (color_mask & 0xF) {
+    scene_cleared_ = single_sample_scene_ &&
+                     (jitter_active_ || smaa_active_ || single_sample_lag_) &&
+                     depth_control.z_enable && !scene_geometry && scene_wide &&
+                     surface.msaa_samples != xenos::MsaaSamples::k1X;
+  }
+  // (Also just after the scene stopped being anti-aliased here, while it may
+  // still be single-sampled: true HDR's image before the UI is found after
+  // it.)
+  if ((jitter_active_ || smaa_active_ || single_sample_lag_) &&
+      depth_control.z_enable &&
       ((surface.msaa_samples != xenos::MsaaSamples::k1X && scene_wide) ||
        single_sample_scene_draw)) {
     ++scene_draws_;
     single_sample_scene_drawn_ |= single_sample_scene_draw;
+    // SMAA takes no depth, jitter or motion.
+    if (!jitter_active_) {
+      return;
+    }
     // Where the draw is on the screen: its render target coordinates minus
     // the window offset of the tile, unless that's in the EDRAM base.
     int32_t window_offset[2] = {};
@@ -637,15 +658,16 @@ void DaoUpscalerImpl::CaptureHudless() {
 }
 
 void DaoUpscalerImpl::OnResolve(const draw_util::ResolveInfo& resolve_info) {
-  if ((!jitter_active_ && !true_hdr_) ||
+  if ((!jitter_active_ && !true_hdr_ && !smaa_active_) ||
       !resolve_info.copy_dest_extent_length || !render_size_[0]) {
     return;
   }
   const RegisterFile& regs = rtc_.register_file();
-  // Single-sampled, the scene's resolves are the first ones after its draws.
+  // Single-sampled, the scene's resolves are the first ones after its draws
+  // (or its clear).
   if (regs.Get<reg::RB_SURFACE_INFO>().msaa_samples ==
           xenos::MsaaSamples::k1X &&
-      !(single_sample_scene_drawn_ && !scene_texture_)) {
+      !((single_sample_scene_drawn_ || scene_cleared_) && !scene_texture_)) {
     return;
   }
   // A scene resolve (color, or depth for the game's own use).
@@ -873,13 +895,21 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
       render_size_[0] != render_width || render_size_[1] != render_height;
   render_size_[0] = render_width;
   render_size_[1] = render_height;
+  if (size_changed) {
+    smaa_failed_ = false;
+  }
 
   const char* reason = nullptr;
   if (!jitter_active_) {
+    if (smaa_active_ && !size_changed && hudless_captured_) {
+      return CompositeSmaa(frontbuffer, frontbuffer_srv, srv_out, hdr_out);
+    }
     if (true_hdr_ && !size_changed && hudless_captured_) {
       return CompositeHdr(frontbuffer, frontbuffer_srv, srv_out, hdr_out);
     }
-    reason = "off";
+    reason = !smaa_active_   ? "off"
+             : size_changed ? "render size changed"
+                            : "no image before the UI";
   } else if (size_changed) {
     reason = "render size changed";
   } else if (!HasScene()) {
@@ -1163,7 +1193,7 @@ ID3D12Resource* DaoUpscalerImpl::OnSwap(
 
 void DaoUpscalerImpl::DispatchComposite(
     const ui::d3d12::util::DescriptorCpuGpuHandlePair* descriptors,
-    CompositeConstants constants) {
+    CompositeConstants constants, ID3D12PipelineState* pipeline) {
   cp_.SubmitBarriers();
   constants.paper_white = PaperWhiteNits();
   constants.gamma = OutputGamma();
@@ -1176,9 +1206,11 @@ void DaoUpscalerImpl::DispatchComposite(
     command_list.D3DSetComputeRootDescriptorTable(1 + i,
                                                   descriptors[i].second);
   }
-  cp_.SetExternalPipeline(constants.blur_samples
-                              ? composite_blur_pipeline_.Get()
-                              : composite_pipeline_.Get());
+  if (!pipeline) {
+    pipeline = constants.blur_samples ? composite_blur_pipeline_.Get()
+                                      : composite_pipeline_.Get();
+  }
+  cp_.SetExternalPipeline(pipeline);
   command_list.D3DDispatch((constants.dest_size[0] + 7) / 8,
                            (constants.dest_size[1] + 7) / 8, 1);
 }
@@ -1236,7 +1268,7 @@ ID3D12Resource* DaoUpscalerImpl::NotUpscaled(
   return encoded_.resource.Get();
 }
 
-void DaoUpscalerImpl::EndFrame(bool upscaled, const char* reason) {
+void DaoUpscalerImpl::EndFrame(bool upscaled, const char* reason, bool smaa) {
   if (upscaled != was_upscaling_) {
     if (upscaled) {
       XELOGI("{}: upscaling ({} draws, {} depth tiles, image before UI from "
@@ -1253,15 +1285,26 @@ void DaoUpscalerImpl::EndFrame(bool upscaled, const char* reason) {
   reset_history_ = !upscaled;
   // Counted per frame.
   depth_less_draws_ = depth_greater_draws_ = 0;
-  // If a 3D scene couldn't be upscaled, stop jittering it for a while (a few
-  // jittered frames shown as they are look like a small shake).
+  // If a 3D scene couldn't be anti-aliased here, stop jittering it (or
+  // rendering it single-sampled for SMAA) for a while (a few jittered frames
+  // shown as they are look like a small shake; single-sampled, they're
+  // aliased).
   const bool enabled = GetTemporalUpscaler() != TemporalUpscaler::kOff;
-  if (HasScene() && !upscaled && jitter_active_) {
+  const bool was_active = jitter_active_ || smaa_active_;
+  if (HasScene() && !upscaled && !smaa && was_active) {
     if (++fail_streak_ >= 3) {
       jitter_cooldown_ = 300;
       fail_streak_ = 0;
+      // (Once while it's on: a scene it can't work on fails again after
+      // every cooldown.)
+      if (smaa_active_ && !smaa_cooldown_logged_) {
+        smaa_cooldown_logged_ = true;
+        XELOGI("SMAA: not anti-aliasing for a while - {} ({} scene draws, "
+               "scene texture {:08X}), again whenever it can't",
+               reason, scene_draws_, scene_texture_);
+      }
     }
-  } else if (upscaled) {
+  } else if (upscaled || smaa) {
     fail_streak_ = 0;
   }
   if (jitter_cooldown_) {
@@ -1271,10 +1314,44 @@ void DaoUpscalerImpl::EndFrame(bool upscaled, const char* reason) {
   // (another backend failing is replaced by FSR at the next upscaled frame).
   jitter_active_ =
       enabled && !jitter_cooldown_ && !(backend_fsr_ && backend_->failed());
+  // Turned on in the settings: set up again even at a size it failed at.
+  const bool smaa_setting = dao_live::Load(dao_live::values.smaa);
+  if (smaa_setting && !smaa_setting_) {
+    smaa_failed_ = false;
+  }
+  smaa_setting_ = smaa_setting;
+  // (Never with jittering: SMAA is for temporal upscaling off.)
+  const bool smaa_wanted = SmaaWanted();
+  if (smaa_wanted != smaa_wanted_) {
+    XELOGI("SMAA: {}", smaa_wanted ? "on" : "off");
+    smaa_wanted_ = smaa_wanted;
+    smaa_logged_ = false;
+    smaa_cooldown_logged_ = false;
+  }
+  smaa_active_ = smaa_wanted && !jitter_cooldown_;
+  // A failure streak counts from the start of jittering or SMAA.
+  if ((jitter_active_ || smaa_active_) != was_active) {
+    fail_streak_ = 0;
+  }
+  // Its memory back once it's turned off (kept through a cooldown, not to be
+  // created again after it).
+  if (!smaa_wanted) {
+    ReleaseSmaa();
+  }
   true_hdr_ = WantsTrueHdr();
-  // The game's 2xMSAA while the scene isn't antialiased here.
-  DaoUpscaler::single_sample_scene_.store(
-      single_sample_scene_ && jitter_active_, std::memory_order_relaxed);
+  // The game's 2xMSAA while the scene isn't antialiased here; when it's asked
+  // for again, the next frames may still be single-sampled (the game may
+  // have read the flag for them already).
+  const bool single_sample = WantsSingleSampleScene();
+  if (single_sample_lag_) {
+    --single_sample_lag_;
+  }
+  if (!single_sample && DaoUpscaler::single_sample_scene_.load(
+                            std::memory_order_relaxed)) {
+    single_sample_lag_ = 2;
+  }
+  DaoUpscaler::single_sample_scene_.store(single_sample,
+                                          std::memory_order_relaxed);
 
   // Next frame's jitter.
   jitter_[0] = jitter_[1] = 0.0f;
@@ -1325,6 +1402,7 @@ void DaoUpscalerImpl::EndFrame(bool upscaled, const char* reason) {
   depth_tiles_ = 0;
   scene_texture_ = 0;
   single_sample_scene_drawn_ = false;
+  scene_cleared_ = false;
   scene_depth_pending_ = false;
   scene_depth_target_ = nullptr;
   hudless_pending_ = false;
@@ -1342,7 +1420,7 @@ void DaoUpscaler::Initialize(D3D12CommandProcessor& command_processor,
     return;
   }
   impl_ = impl;
-  single_sample_scene_.store(impl->single_sample_scene(),
+  single_sample_scene_.store(impl->WantsSingleSampleScene(),
                              std::memory_order_relaxed);
 }
 

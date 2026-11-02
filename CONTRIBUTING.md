@@ -36,8 +36,8 @@ has no game code or data, and must never get any.
 3. **Third-party binaries come from the installer, not git.** The installer downloads
    pinned versions (SHA-256 checked, `installer/deps.py`): LLVM, FidelityFX, XeSS,
    Streamline and NVIDIA's DLLs. Never commit or bundle them. The only third-party code
-   in git is source under `thirdparty/` (the Anti-Lag 2 header), with its license and
-   where it came from.
+   in git is source under `thirdparty/` (the Anti-Lag 2 header, SMAA's shader and lookup
+   textures), each with its license and where it came from.
 4. **Untested features are marked experimental**, in the launcher, the game's menus
    and the README (as DLSS and Reflex are, built without an NVIDIA GPU to test on).
 
@@ -72,7 +72,7 @@ has no game code or data, and must never get any.
 | `DAORecomp/mods/` | Mods, and the PC-to-360 mod converter (`convert/`). The `mods/` folder at the top is the player's, not code. |
 | `DAORecomp/patches/` | Optional code patches the launcher lists. |
 | `DAORecomp/settings.*` | `userdata/config.toml`: every setting, read and written in one place. |
-| `thirdparty/` | The Anti-Lag 2 header (in git); SDL (fetched by the installer). |
+| `thirdparty/` | The Anti-Lag 2 header and SMAA (in git); SDL (fetched by the installer). |
 | `installer/` | The installer (Python): checks the ISO, downloads the tools, translates the game and builds it. |
 | `config/` | XenonRecomp's description of the game's code: functions, jump tables (`*_switch_tables.toml`), exception records. |
 | `scripts/` | Analysis, translation and build tools; `scripts/test/` is the test kit. |
@@ -176,8 +176,8 @@ What to run depends on the change:
 - **Renderer, presentation or pacing:** measure before and after, at 60 fps with vsync on
   and with the frame rate unlimited (the override `video.frame_rate=0`; at 60 fps the
   GPU's clocks drop with the load, which hides costs). Go through the temporal upscalers
-  you can (Off, FSR 4, FSR 3.1, XeSS), HDR on and off, FSR Frame Generation, and photo
-  mode.
+  you can (Off, FSR 4, FSR 3.1, XeSS), with Off both anti-aliasing options (2xMSAA,
+  SMAA), HDR on and off, FSR Frame Generation, and photo mode.
 - **Hooks:** both builds, with and without a title update (`DAO_BUILD=disc` runs the
   disc's).
 - **Launcher:** `DAO_LAUNCHER_SCREENSHOTS` saves each view as an image; with it,

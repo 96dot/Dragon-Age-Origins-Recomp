@@ -34,6 +34,7 @@ namespace dao::ui
             VSync,
             LowLatency,
             TemporalUpscaler,
+            AntiAliasing,
             TemporalSharpness,
             FrameGeneration,
             Upscaler,
@@ -65,6 +66,7 @@ namespace dao::ui
             { "VSync", false },
             { "LowLatency", false }, // on an NVIDIA GPU, maybe: Pending asks
             { "TemporalUpscaler", true },
+            { "AntiAliasing", false },
             { "TemporalSharpness", false },
             { "FrameGeneration", false },
             { "Upscaler", false },
@@ -176,6 +178,7 @@ namespace dao::ui
             case Key::VSync: return s.vsync;
             case Key::LowLatency: return s.lowLatency;
             case Key::TemporalUpscaler: return int(s.temporalUpscaler);
+            case Key::AntiAliasing: return int(s.antiAliasing);
             case Key::TemporalSharpness: return std::round(s.temporalSharpness * kSliderSteps);
             case Key::FrameGeneration: return s.frameGeneration;
             case Key::Upscaler: return int(s.upscaler);
@@ -209,6 +212,9 @@ namespace dao::ui
             case Key::LowLatency: s.lowLatency = whole; break;
             case Key::TemporalUpscaler:
                 s.temporalUpscaler = TemporalUpscaler(std::clamp(whole, 0, kMaxTemporalUpscaler));
+                break;
+            case Key::AntiAliasing:
+                s.antiAliasing = AntiAliasing(std::clamp(whole, 0, kMaxAntiAliasing));
                 break;
             case Key::TemporalSharpness:
                 s.temporalSharpness = float(value / kSliderSteps);
@@ -259,6 +265,7 @@ namespace dao::ui
             case Key::VSync: to.vsync = from.vsync; break;
             case Key::LowLatency: to.lowLatency = from.lowLatency; break;
             case Key::TemporalUpscaler: to.temporalUpscaler = from.temporalUpscaler; break;
+            case Key::AntiAliasing: to.antiAliasing = from.antiAliasing; break;
             case Key::TemporalSharpness: to.temporalSharpness = from.temporalSharpness; break;
             case Key::FrameGeneration: to.frameGeneration = from.frameGeneration; break;
             case Key::Upscaler:
@@ -292,6 +299,7 @@ namespace dao::ui
             case Key::FrameRate: gpu::SetFrameRate(s.frameRate); break;
             case Key::VSync: live.present_vsync = s.vsync; break;
             case Key::LowLatency: live.low_latency = s.lowLatency; break;
+            case Key::AntiAliasing: live.smaa = s.antiAliasing == AntiAliasing::Smaa; break;
             case Key::TemporalSharpness: live.temporal_sharpness = s.temporalSharpness; break;
             case Key::FrameGeneration: live.frame_generation = s.frameGeneration; break;
             case Key::Upscaler:

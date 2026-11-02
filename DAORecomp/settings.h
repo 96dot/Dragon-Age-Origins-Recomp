@@ -8,6 +8,9 @@ namespace dao
     // Temporal upscaling and anti-aliasing of the 3D scenes (AMD FidelityFX API, Intel
     // XeSS-SR or NVIDIA DLSS, experimental; those two fall back to FSR where they can't run).
     enum class TemporalUpscaler { Off, Auto, Fsr4, Fsr3, Xess, Dlss };
+    // Anti-aliasing of the 3D scenes without temporal upscaling: the game's own 2xMSAA, or
+    // SMAA 1x on the scenes rendered single-sampled.
+    enum class AntiAliasing { Msaa, Smaa };
     // Which releases the launcher offers as updates: Release, only releases (vX.Y.Z);
     // Dev, dev releases too (vX.Y.Z-dev.N, test builds published between releases).
     enum class UpdateChannel { Release, Dev };
@@ -78,6 +81,8 @@ namespace dao
         // is scaled separately); Auto picks FSR 4 where supported, else FSR 3.1.
         TemporalUpscaler temporalUpscaler = TemporalUpscaler::Auto;
         float temporalSharpness = 0.3f; // 0..1, FSR's (XeSS and DLSS don't sharpen)
+        // While temporalUpscaler is Off (temporal upscaling anti-aliases the scenes itself).
+        AntiAliasing antiAliasing = AntiAliasing::Msaa;
         // Frame generation (FSR 3.1): with temporal upscaling, a frame generated
         // between each two of the 3D scenes, shown half a frame apart: up to twice the
         // frames on the display (only real ones while it can't show that many), half a
@@ -151,6 +156,9 @@ namespace dao
     // The last temporal upscaler (Settings::temporalUpscaler); the in-game Graphics tab and the
     // launcher list one name per upscaler.
     constexpr int kMaxTemporalUpscaler = int(TemporalUpscaler::Dlss);
+    // The last anti-aliasing (Settings::antiAliasing); the in-game Graphics tab and the
+    // launcher list one name per method.
+    constexpr int kMaxAntiAliasing = int(AntiAliasing::Smaa);
     constexpr float kHdrMinNits = 80.0f;
     constexpr float kHdrMaxPaperWhite = 1000.0f;
     constexpr float kHdrMaxPeak = 10000.0f;
@@ -160,6 +168,9 @@ namespace dao
 
     // Motion blur as config.toml writes it: "off", "low", "high".
     std::string_view MotionBlurName(int motionBlur);
+
+    // Anti-aliasing as config.toml writes it: "msaa", "smaa".
+    std::string_view AntiAliasingName(AntiAliasing antiAliasing);
 
     // Low latency as config.toml writes it: "off", "on", "boost".
     std::string_view LowLatencyName(int lowLatency);

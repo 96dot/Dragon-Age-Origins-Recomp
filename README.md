@@ -13,6 +13,8 @@ x86-64 Windows program, with a Direct3D 12 renderer based on Xenia's. It adds:
 - depth of field in conversations (and, it seems, cutscenes), from the scene's depth,
   with temporal upscaling: the people nearest the camera sharp, the scene behind them
   blurred, as a film camera's lens does
+- SMAA anti-aliasing, an option without temporal upscaling in place of the game's 2xMSAA
+  (the default): faster (the scene is drawn once, single-sampled), edges about as smooth
 - HDR output: on an HDR display the 3D scenes are rendered in HDR (the game's
   tonemapping redone without compressing its highlights), upscaled in HDR;
   HDR quality High keeps it 16-bit scRGB all the way to the display
@@ -268,6 +270,10 @@ launcher) makes the game faster on low-power devices such as the Steam Deck. Mot
 blur is off by default; Low and High cost GPU time while the scene moves. Depth of field
 in conversations is on by default; it costs GPU time in conversations and cutscenes only
 (about 0.85 ms a frame at 4K on an RX 9070 XT, by the GPU timing's "depth of field" mark).
+With temporal upscaling off, anti-aliasing SMAA is faster than the game's 2xMSAA: about
+20% less GPU time a frame at 720p and 15% at 4K on an RX 9070 XT (SMAA's own passes take
+0.06 ms and 0.3 ms of it). Working on the finished image, it may let thin details shimmer
+more in motion.
 F11 switches between fullscreen and a window until the game is closed; changing
 *Fullscreen* in the Graphics tab saves the choice, F11 alone doesn't.
 
@@ -508,9 +514,10 @@ license is copied next to its DLLs, and Intel's XeSS license and third-party not
 next to `libxess.dll` (`intel_xess_license.txt`, `intel_xess_third_party_programs.txt`).
 `thirdparty/antilag2` is
 AMD's Anti-Lag 2 SDK header, under its MIT license (installed as
-`amd_antilag2_license.txt`). NVIDIA's Streamline (MIT) and its Reflex and DLSS DLLs
-(under NVIDIA's license terms) are downloaded by the installer, and their licenses
-installed next to them (`nvidia_streamline_license.txt`, `nvidia_reflex_license.txt`,
-`nvidia_dlss_license.txt`).
+`amd_antilag2_license.txt`). `thirdparty/smaa` is SMAA's shader and lookup textures
+(Jorge Jimenez et al.), under its MIT license (installed as `smaa_license.txt`).
+NVIDIA's Streamline (MIT) and its Reflex and DLSS DLLs (under NVIDIA's license terms)
+are downloaded by the installer, and their licenses installed next to them
+(`nvidia_streamline_license.txt`, `nvidia_reflex_license.txt`, `nvidia_dlss_license.txt`).
 *Dragon Age* is a trademark of Electronic Arts; this project is not affiliated with EA,
 BioWare or Microsoft.

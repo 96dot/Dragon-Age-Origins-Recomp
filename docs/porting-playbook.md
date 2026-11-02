@@ -100,7 +100,8 @@ the next game.
 - **Scene tiles** (`sub_82661640`, MSAA global `0x8316E35C`, tile rects `0x82144D64`):
   the function returning the predicated-tiling tile count, called every frame. Found
   from `DAO_GPU_FRAME_TRACE` (two resolves per scene) back to the code setting the
-  tile rects. Forced to one tile without MSAA when a temporal upscaler is on.
+  tile rects. Forced to one tile without MSAA when a temporal upscaler (or SMAA, which
+  anti-aliases the single-sampled scene instead) is on.
 - **Occlusion queries off** (renderer init `sub_8263BBF0`, flag byte `0x83211EC3`):
   the engine's own "queries disabled" path. Found from the query manager's vtable
   (Begin/End/GetResult), whose GetResult checks the flag; the hook sets it after the

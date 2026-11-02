@@ -133,6 +133,11 @@ namespace dao
         return motionBlur >= kMaxMotionBlur ? "high" : motionBlur > 0 ? "low" : "off";
     }
 
+    std::string_view AntiAliasingName(AntiAliasing antiAliasing)
+    {
+        return antiAliasing == AntiAliasing::Smaa ? "smaa" : "msaa";
+    }
+
     std::string_view LowLatencyName(int lowLatency)
     {
         return lowLatency >= kMaxLowLatency ? "boost" : lowLatency > 0 ? "on" : "off";
@@ -221,6 +226,10 @@ namespace dao
             : temporal == "dlss"               ? TemporalUpscaler::Dlss
                                                : TemporalUpscaler::Auto;
         s.temporalSharpness = video["temporal_sharpness"].value_or(s.temporalSharpness);
+        // (Anything but "smaa" is the game's own.)
+        s.antiAliasing = video["anti_aliasing"].value_or(std::string()) == AntiAliasingName(AntiAliasing::Smaa)
+            ? AntiAliasing::Smaa
+            : AntiAliasing::Msaa;
         s.frameGeneration = video["frame_generation"].value_or(s.frameGeneration);
         s.vsync = video["vsync"].value_or(s.vsync);
         const std::string lowLatency = video["low_latency"].value_or(std::string());
@@ -324,6 +333,10 @@ sharpness = {}
 # Sharpening 0..1 (FSR only).
 temporal_upscaler = "{}"
 temporal_sharpness = {}
+# Anti-aliasing of the 3D scenes without temporal upscaling (temporal_upscaler = "off"):
+# "msaa" (the game's own 2xMSAA, the default) or "smaa" (SMAA 1x on the scenes rendered
+# single-sampled: about as smooth, and faster). Temporal upscaling anti-aliases them itself.
+anti_aliasing = "{}"
 # Frame generation (AMD FSR 3.1), with temporal upscaling: a frame generated between each
 # two of the 3D scenes doubles the frames shown, for half a frame more latency. Best with
 # frame_rate at half the display's refresh rate (60 fps on a 120 Hz display): when the
@@ -388,7 +401,8 @@ window_height = {}
             s.updateChannelChosen ? fmt::format("update_channel = \"{}\"", UpdateChannelName(s.updateChannel))
                                   : std::string("# update_channel = \"release\""),
             s.modsWarningSeen, LanguageName(s.language), s.resolutionScale, UpscalerName(s.upscaler), s.sharpness,
-            TemporalUpscalerName(s.temporalUpscaler), s.temporalSharpness, s.frameGeneration,
+            TemporalUpscalerName(s.temporalUpscaler), s.temporalSharpness, AntiAliasingName(s.antiAliasing),
+            s.frameGeneration,
             s.vsync, LowLatencyName(s.lowLatency), s.frameRate,
             s.hdr, s.hdrPaperWhite, s.hdrPeak, HdrQualityName(s.hdrHighQuality), s.anisotropicFiltering, s.shadows, s.postProcessing,
             MotionBlurName(s.motionBlur), s.depthOfField, s.fov, s.conversationFov, s.texturePacks,
@@ -441,6 +455,7 @@ window_height = {}
         SetXeniaCvar("draw_resolution_scale_y", toml::value<int64_t>(s.resolutionScale));
         SetXeniaCvar("dao_temporal_upscaler", toml::value<std::string>(std::string(TemporalUpscalerName(s.temporalUpscaler))));
         SetXeniaCvar("dao_temporal_sharpness", toml::value<double>(s.temporalSharpness));
+        SetXeniaCvar("dao_smaa", toml::value<bool>(s.antiAliasing == AntiAliasing::Smaa));
         SetXeniaCvar("dao_frame_generation", toml::value<bool>(s.frameGeneration));
         // (Not Xenia's own vsync cvar: the guest's vblanks stay at the console's 60 Hz.)
         SetXeniaCvar("dao_present_vsync", toml::value<bool>(s.vsync));
@@ -475,6 +490,8 @@ window_height = {}
             LOGI("Settings: language {}", LanguageName(s.language));
         if (s.frameGeneration)
             LOGI("Settings: frame generation");
+        if (s.antiAliasing == AntiAliasing::Smaa && s.temporalUpscaler == TemporalUpscaler::Off)
+            LOGI("Settings: SMAA");
         if (s.motionBlur)
             LOGI("Settings: motion blur {}", MotionBlurName(s.motionBlur));
         if (s.lowLatency)

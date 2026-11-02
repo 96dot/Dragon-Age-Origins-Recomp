@@ -4,7 +4,8 @@
 // dao_upscale_xess.cc (XeSS) and dao_upscale_dlss.cc (DLSS),
 // dao_upscale_fg.cc (frame generation),
 // dao_upscale_motion.cc (motion vectors), dao_upscale_hdr.cc (true HDR),
-// dao_motion_blur.cc and dao_upscale_dof.cc (depth of field).
+// dao_motion_blur.cc, dao_upscale_dof.cc (depth of field) and dao_smaa.cc
+// (SMAA without temporal upscaling).
 #pragma once
 
 #include <algorithm>
@@ -297,7 +298,11 @@ class DaoUpscalerImpl {
   ~DaoUpscalerImpl();
 
   bool Initialize();
-  bool single_sample_scene() const { return single_sample_scene_; }
+  // Whether the game should render its 3D scenes single-sampled now
+  // (DaoUpscaler::WantsSingleSampleScene).
+  bool WantsSingleSampleScene() const {
+    return single_sample_scene_ && (jitter_active_ || smaa_active_);
+  }
   // For the backends.
   D3D12CommandProcessor& command_processor() const { return cp_; }
   FfxApi& ffx() { return ffx_; }
@@ -311,7 +316,7 @@ class DaoUpscalerImpl {
   // Whether the frame has a 3D scene. Counts include screen-space clears,
   // which track depth but don't receive jitter or motion-vector capture.
   // Single-sampled, multisampled clears alone aren't a scene unless a depth
-  // tile was taken.
+  // tile was taken (jittering, at the clear's resolve: the main menu's).
   bool HasScene() const {
     return scene_draws_ && (!single_sample_scene_ ||
                             single_sample_scene_drawn_ || depth_tiles_);
@@ -399,6 +404,13 @@ class DaoUpscalerImpl {
   // (RecordDepthOfField).
   static constexpr uint32_t kDofTables = 5;
   static constexpr uint32_t kDofViews = 9;
+  // dao_smaa.hlsli.
+  struct SmaaConstants {
+    float metrics[4];
+    uint32_t size[2];
+  };
+  // SMAA's edge and weight passes' descriptor tables (t0 to t2, u0).
+  static constexpr uint32_t kSmaaTables = 4;
   // dao_hdr_tonemap.cs.
   struct HdrTonemapConstants {
     float rows[3][4];
@@ -594,10 +606,12 @@ class DaoUpscalerImpl {
       const ui::d3d12::util::DescriptorCpuGpuHandlePair* const* tables,
       uint32_t groups_x, uint32_t groups_y);
   // With kCompositeTables descriptors; with motion blur if
-  // constants.blur_samples.
+  // constants.blur_samples, unless another pipeline of its root signature is
+  // given (SMAA's).
   void DispatchComposite(const ui::d3d12::util::DescriptorCpuGpuHandlePair*
                              descriptors,
-                         CompositeConstants constants);
+                         CompositeConstants constants,
+                         ID3D12PipelineState* pipeline = nullptr);
   bool InitializeMotion();
   // Depth of field (dao_upscale_dof.cc): its root signature and pipelines.
   bool InitializeDepthOfField();
@@ -618,6 +632,26 @@ class DaoUpscalerImpl {
       ID3D12PipelineState* pipeline, const DofConstants& constants,
       const ui::d3d12::util::DescriptorCpuGpuHandlePair* const* tables,
       uint32_t groups_x, uint32_t groups_y);
+  // SMAA (dao_smaa.cc): its root signature and pipelines.
+  bool InitializeSmaa();
+  // Whether it anti-aliases the next frame: chosen (the live setting) without
+  // temporal upscaling, and not failed at the render size.
+  bool SmaaWanted() const;
+  // Its area and search textures, made at its first frame and kept.
+  bool EnsureSmaaLookup();
+  // Its render size textures released (turned off, or failed).
+  void ReleaseSmaa();
+  // Without temporal upscaling: the image before the UI (true HDR's scene,
+  // with it) anti-aliased by SMAA, and the UI put back over it, at the render
+  // size, into smaa_out_ (HDR-encoded with true HDR).
+  ID3D12Resource* CompositeSmaa(
+      ID3D12Resource* frontbuffer,
+      const D3D12_SHADER_RESOURCE_VIEW_DESC& frontbuffer_srv,
+      D3D12_SHADER_RESOURCE_VIEW_DESC& srv_out, bool& hdr_out);
+  // Its edge or weight pass, with its kSmaaTables descriptor tables.
+  void DispatchSmaa(
+      ID3D12PipelineState* pipeline, const SmaaConstants& constants,
+      const ui::d3d12::util::DescriptorCpuGpuHandlePair* const* tables);
   // The stream output buffers (kStreamOutBufferSize each), created at the
   // first motion capture rather than with the rest, so they take no memory with
   // the temporal upscaler off. False if they couldn't be created.
@@ -671,7 +705,8 @@ class DaoUpscalerImpl {
                              bool previous_given);
   static void ExecuteFrameGeneration(void* context,
                                      ID3D12GraphicsCommandList* command_list);
-  void EndFrame(bool upscaled, const char* reason);
+  // smaa: anti-aliased by SMAA (not upscaled).
+  void EndFrame(bool upscaled, const char* reason, bool smaa = false);
 
   D3D12CommandProcessor& cp_;
   D3D12RenderTargetCache& rtc_;
@@ -711,6 +746,13 @@ class DaoUpscalerImpl {
   ComPtr<ID3D12PipelineState> dof_combine_pipeline_;
   // Not if its pipelines couldn't be created.
   bool dof_available_ = false;
+  ComPtr<ID3D12RootSignature> smaa_root_signature_;
+  ComPtr<ID3D12PipelineState> smaa_edges_pipeline_;
+  ComPtr<ID3D12PipelineState> smaa_weights_pipeline_;
+  // The composite's, with SMAA's last pass.
+  ComPtr<ID3D12PipelineState> composite_smaa_pipeline_;
+  // Not if its pipelines couldn't be created.
+  bool smaa_available_ = false;
 
   // Render resolution inputs.
   Texture color_;
@@ -754,6 +796,24 @@ class DaoUpscalerImpl {
   float dof_fov_ = 0.0f;
   uint32_t dof_snap_frames_ = 0;
   uint32_t dof_failed_size_[2] = {};
+  // SMAA (render size): the edges, the blending weights, and the scene
+  // anti-aliased with the UI (HdrFormat with true HDR, else RGBA8); its area
+  // and search textures; the render size its textures couldn't be created at;
+  // whether it anti-aliased a frame since it was turned on (for the log).
+  Texture smaa_edges_;
+  Texture smaa_weights_;
+  Texture smaa_out_;
+  Texture smaa_area_;
+  Texture smaa_search_;
+  // SMAA couldn't be set up at this render size (tried again once it changes,
+  // or the setting is turned on again).
+  bool smaa_failed_ = false;
+  // The setting (dao_live smaa) and SmaaWanted at the last swap.
+  bool smaa_setting_ = false;
+  bool smaa_wanted_ = false;
+  // Logged since SMAA was last turned on: anti-aliasing, a cooldown.
+  bool smaa_logged_ = false;
+  bool smaa_cooldown_logged_ = false;
   // Display resolution.
   Texture upscaled_;
   Texture composite_;
@@ -774,11 +834,19 @@ class DaoUpscalerImpl {
 
   // Jitter of the current frame in render pixels (UpscalerBackend::Frame).
   bool jitter_active_ = false;
-  // The game renders the scene single-sampled (DaoUpscaler::
-  // WantsSingleSampleScene).
+  // dao_single_sample_scene: the game may render the scene single-sampled
+  // while it's anti-aliased here, by the upscaler or SMAA (whether it does
+  // now: WantsSingleSampleScene).
   bool single_sample_scene_ = false;
+  // SMAA anti-aliases this frame's scene (SmaaWanted at the last swap, and no
+  // cooldown).
+  bool smaa_active_ = false;
+  // Frames the scene may still be single-sampled for after the game was told
+  // it needn't be (EndFrame).
+  uint32_t single_sample_lag_ = 0;
   float jitter_[2] = {};
-  // Frames left before jittering again after the upscaler could not run.
+  // Frames left before jittering (or SMAA) again after the upscaler (or SMAA)
+  // could not run.
   uint32_t jitter_cooldown_ = 0;
   uint32_t fail_streak_ = 0;
 
@@ -788,6 +856,9 @@ class DaoUpscalerImpl {
   uint32_t scene_texture_ = 0;
   // Single-sampled scene draws were drawn (their resolves are the scene's).
   bool single_sample_scene_drawn_ = false;
+  // The last draw writing color was the scene's multisampled clear (until the
+  // scene's color is resolved, the next resolve is the scene's).
+  bool scene_cleared_ = false;
   bool scene_depth_pending_ = false;
   D3D12RenderTargetCache::D3D12RenderTarget* scene_depth_target_ = nullptr;
   int32_t scene_depth_window_offset_[2] = {};

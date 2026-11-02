@@ -9,7 +9,8 @@
 // A 3D frame of the game (Eclipse engine, Xbox 360 Direct3D 9):
 //   depth prepass, shadow maps -> scene draws (2xMSAA, two predicated tiles,
 //   each resolved: color to the scene texture, depth to a depth texture; while
-//   upscaling, one single-sampled tile, see WantsSingleSampleScene) ->
+//   upscaling or with SMAA, one single-sampled tile, see
+//   WantsSingleSampleScene) ->
 //   full-screen post-processing passes reading the scene texture (fog, bloom,
 //   the tonemapper) -> UI on the same render target -> resolve to the front
 //   buffer -> swap.
@@ -37,6 +38,9 @@
 // frame generation, a frame between the previous one and this one is
 // generated from that image (dao_upscale_fg.cc) and composited with the UI the
 // same way; the presenter shows it before this one.
+// Without temporal upscaling, SMAA can anti-alias the scenes instead of the
+// game's 2xMSAA (dao_smaa.cc): the image before the UI, at the render size,
+// with the UI composited over it the same way.
 #pragma once
 
 #include "xenia/ui/d3d12/d3d12_api.h"
@@ -66,9 +70,10 @@ class DaoUpscaler {
   static void Shutdown();
 
   // Whether the game should render its 3D scenes in one tile without its
-  // 2xMSAA: the upscaler antialiases them (from the jitter), so the second
-  // tile and the multisampling would only cost GPU time. False again if the
-  // upscaler fails (for good, or for a while). Any thread.
+  // 2xMSAA: the upscaler (from the jitter) or SMAA antialiases them, so the
+  // second tile and the multisampling would only cost GPU time. False again if
+  // the upscaler or SMAA fails (for good, or for a while), or SMAA is turned
+  // off. Any thread.
   static bool WantsSingleSampleScene();
 
   // Before a draw's system constants are computed: jitters scene draws by

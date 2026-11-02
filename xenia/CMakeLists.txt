@@ -141,6 +141,8 @@ set(DAO_FFX_SDK ${CMAKE_SOURCE_DIR}/tools/FidelityFX-SDK/Kits/FidelityFX)
 target_include_directories(xenia-gpu-d3d12 SYSTEM PRIVATE ${DAO_FFX_SDK}/api/include ${DAO_FFX_SDK}/upscalers/include
     ${DAO_FFX_SDK}/framegeneration/include ${CMAKE_SOURCE_DIR}/tools/XeSS-SDK/inc
     ${CMAKE_SOURCE_DIR}/tools/Streamline-SDK/include)
+# SMAA's area and search textures (gpu/d3d12/dao_smaa.cc).
+target_include_directories(xenia-gpu-d3d12 SYSTEM PRIVATE ${CMAKE_SOURCE_DIR}/thirdparty/smaa)
 
 # Everything the runtime links.
 add_library(dao-xenia INTERFACE)

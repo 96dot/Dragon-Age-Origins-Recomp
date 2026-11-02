@@ -1,0 +1,14 @@
+SMAA, Enhanced Subpixel Morphological Antialiasing (MIT, see LICENSE.txt): SMAA.hlsl,
+AreaTex.h and SearchTex.h, unmodified but for LF line ends, from
+https://github.com/iryoku/smaa at commit 71c806a838bdd7d517df19192a20f0c61b3ca29d.
+LICENSE.txt is the license in SMAA.hlsl's header comment, as it is there (without the
+comment's " * " line starts).
+SHA-256 as upstream (CRLF):
+4db53d92ef0b45661f8450303589ffabce93c352cae4282a6f32dd2b80efbeb9  SMAA.hlsl
+1933bf43ce86ba71f7ed5f0fa94b148610c634dc3395b9bc67a817d51ee73af2  AreaTex.h
+1fac315ab5f87b60083c9b8387af17f056204d3d1bf21500f2acc5b3e8c1a37a  SearchTex.h
+SHA-256 here (LF):
+fafdaa26c30ee6c12c2610c3093d7109f9df99207f23fcf9e215b6516296aafd  SMAA.hlsl
+f2838043c41d10df08eb77f44ced37f0fe0b2af2bfba48b71e0806b8d89a4142  AreaTex.h
+34bbd4ff9f6fd39b583c2f5a450d815fa2f380a50d06008e411278e6f6a4d911  SearchTex.h
+94686e33667764eb77daa1a1033c6ed801f60937d215ef56cf7b8a420ddd16f0  LICENSE.txt

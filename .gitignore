@@ -21,6 +21,14 @@
 !/thirdparty/antilag2/ffx_antilag2_dx12.h
 !/thirdparty/antilag2/LICENSE.txt
 !/thirdparty/antilag2/SOURCE
+# SMAA (MIT), its shader and lookup textures kept as they are: see its SOURCE.
+!/thirdparty/smaa/
+/thirdparty/smaa/*
+!/thirdparty/smaa/SMAA.hlsl
+!/thirdparty/smaa/AreaTex.h
+!/thirdparty/smaa/SearchTex.h
+!/thirdparty/smaa/LICENSE.txt
+!/thirdparty/smaa/SOURCE
 /build/
 /build-*/
 /xenia/third_party

@@ -558,6 +558,8 @@ def install(reporter, built, dest, with_shortcuts=False):
     shutil.copy2(sl_bin / "nvngx_dlss.license.txt", dest / "nvidia_dlss_license.txt")
     # The Anti-Lag 2 SDK's header is built into the exe: its license (MIT) goes with it.
     shutil.copy2(REPO / "thirdparty" / "antilag2" / "LICENSE.txt", dest / "amd_antilag2_license.txt")
+    # So are SMAA's shader and lookup textures: its license (MIT) too.
+    shutil.copy2(REPO / "thirdparty" / "smaa" / "LICENSE.txt", dest / "smaa_license.txt")
     _remove_neural_rendering(reporter, dest)
     for folder in ("userdata", "mods"):
         (dest / folder).mkdir(exist_ok=True)

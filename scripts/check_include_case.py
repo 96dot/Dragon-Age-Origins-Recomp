@@ -29,7 +29,7 @@ INCLUDE_DIRS = [
     "tools/FidelityFX-SDK/Kits/FidelityFX/framegeneration/include",
     "tools/XeSS-SDK/inc",
     "tools/Streamline-SDK/include",
-    "thirdparty/antilag2",
+    "thirdparty/antilag2", "thirdparty/smaa",
 ]
 INCLUDE = re.compile(r'^\s*#\s*include\s*([<"])([^>"]+)[>"]', re.M)
 

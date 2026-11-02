@@ -9,6 +9,9 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "xenia" / "tools_build" / "compile_shader_dxbc.py"
 STAGES = {"vs", "hs", "ds", "gs", "ps", "cs"}
+# SMAA's own shader, which dao_smaa.hlsli includes: a dependency of the SMAA
+# shaders only, so a new copy of it doesn't recompile all the others.
+SMAA = ROOT / "thirdparty" / "smaa" / "SMAA.hlsl"
 
 
 def jobs():
@@ -22,7 +25,10 @@ def jobs():
             if ident[-2:] not in STAGES:
                 continue
             out = out_dir / f"{ident}.h"
-            if out.exists() and out.stat().st_mtime >= max(src.stat().st_mtime, newest_include):
+            newest = max(src.stat().st_mtime, newest_include)
+            if "smaa" in ident and SMAA.exists():
+                newest = max(newest, SMAA.stat().st_mtime)
+            if out.exists() and out.stat().st_mtime >= newest:
                 continue
             yield src, out
 

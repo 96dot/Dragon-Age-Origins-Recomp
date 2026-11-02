@@ -5,7 +5,9 @@
 // result is PQ-encoded (Rec. 709 primaries, decoded by the presenter), or with
 // HDR quality High scRGB (linear, 1 = 80 nits, as the presenter's back buffer).
 // With motion blur (dao_upscale_composite_blur.cs), the scene is blurred along
-// its motion first, so the UI stays sharp.
+// its motion first, so the UI stays sharp. With SMAA instead of upscaling
+// (dao_upscale_composite_smaa.cs, at the render size), the scene (the image
+// before the UI, or true HDR's) is anti-aliased first: SMAA's last pass.
 Texture2D<float4> dao_upscaled : register(t0);  // Display resolution.
 Texture2D<float4> dao_final : register(t1);     // Render resolution, with UI.
 Texture2D<float4> dao_hudless : register(t2);   // Render resolution, no UI.
@@ -16,6 +18,10 @@ Texture2D<float2> dao_motion : register(t3);    // Render resolution.
 // dao_motion_blur_neighbor_max.cs.
 Texture2D<float2> dao_blur_pixels : register(t4);
 Texture2D<float2> dao_blur_around : register(t5);
+#endif
+#ifdef DAO_SMAA
+// SMAA's blending weights, from dao_smaa_weights.cs.
+Texture2D<float4> dao_smaa_weights : register(t4);
 #endif
 SamplerState dao_linear : register(s0);
 RWTexture2D<float4> dao_dest : register(u0);
@@ -142,6 +148,50 @@ float3 MotionBlur(uint2 id, float2 uv, float3 center) {
 }
 #endif  // DAO_MOTION_BLUR
 
+#ifdef DAO_SMAA
+// SMAA's neighbourhood blending (SMAANeighborhoodBlendingPS, see
+// dao_smaa.hlsli): each pixel blended with its neighbours on one axis, by the
+// weights pointing to them (for the top and left ones its own weights, for the
+// right and bottom ones theirs). SMAA's bilinear fetches between two pixels are
+// lerps of two loads here, of the linear scene (as SMAA's are with an sRGB
+// view): the SDR image is decoded for it and encoded again.
+
+int2 SmaaClamp(int2 p) {
+  return clamp(p, int2(0, 0), int2(dao_render_size) - 1);
+}
+
+float3 SmaaLinear(float3 color) {
+  return dao_mode == DAO_MODE_HDR ? color : pow(saturate(color), dao_gamma);
+}
+
+float3 SmaaBlend(int2 p) {
+  float3 center = dao_upscaled.Load(int3(p, 0)).rgb;
+  float4 a;
+  a.x = dao_smaa_weights.Load(int3(SmaaClamp(p + int2(1, 0)), 0)).a;
+  a.y = dao_smaa_weights.Load(int3(SmaaClamp(p + int2(0, 1)), 0)).g;
+  a.wz = dao_smaa_weights.Load(int3(p, 0)).xz;
+  // Most pixels.
+  if (dot(a, float4(1.0, 1.0, 1.0, 1.0)) < 1e-5) {
+    return center;
+  }
+  // Horizontally (towards the right and left neighbours) or vertically
+  // (towards the bottom and top ones), whichever weighs more.
+  bool h = max(a.x, a.z) > max(a.y, a.w);
+  float2 t = h ? a.xz : a.yw;
+  int2 dir = h ? int2(1, 0) : int2(0, 1);
+  float3 linear_center = SmaaLinear(center);
+  float3 color =
+      (t.x * lerp(linear_center,
+                  SmaaLinear(dao_upscaled.Load(int3(SmaaClamp(p + dir), 0)).rgb),
+                  t.x) +
+       t.y * lerp(linear_center,
+                  SmaaLinear(dao_upscaled.Load(int3(SmaaClamp(p - dir), 0)).rgb),
+                  t.y)) /
+      (t.x + t.y);
+  return dao_mode == DAO_MODE_HDR ? color : pow(color, 1.0 / dao_gamma);
+}
+#endif  // DAO_SMAA
+
 float UiDifference(int2 p) {
   p = clamp(p, int2(0, 0), int2(dao_render_size) - 1);
   float3 d = abs(dao_final.Load(int3(p, 0)).rgb - dao_hudless.Load(int3(p, 0)).rgb);
@@ -173,7 +223,11 @@ void main(uint3 id : SV_DispatchThreadID) {
   // Both images come from the same render target, so outside the UI they are
   // identical; small differences are faint UI (fades, shadows).
   float ui = saturate(difference * 128.0);
+#ifdef DAO_SMAA
+  float3 scene = SmaaBlend(int2(id.xy));
+#else
   float3 scene = dao_upscaled[id.xy].rgb;
+#endif
 #ifdef DAO_MOTION_BLUR
   // Not under opaque UI.
   if (ui < 1.0) {

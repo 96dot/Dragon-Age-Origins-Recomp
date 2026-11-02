@@ -22,6 +22,7 @@ struct Values {
   std::atomic<bool> frame_generation{false};      // dao_frame_generation
   std::atomic<int32_t> anisotropic_override{-1};  // anisotropic_override
   std::atomic<int32_t> motion_blur{0};            // dao_motion_blur
+  std::atomic<bool> smaa{false};                  // dao_smaa
   // dao_depth_of_field (default true, as Settings and the cvar have); F8 toggles
   // it too (DAORecomp/main.cpp), not saved.
   std::atomic<bool> depth_of_field{true};

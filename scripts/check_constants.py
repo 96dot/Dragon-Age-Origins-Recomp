@@ -77,20 +77,24 @@ def fov_lists():
 
 def option_lists():
     """[(the option, settings.h's values, graphics_tab.as's)] for the motion blur and low
-    latency levels (0 to kMaxMotionBlur, kMaxLowLatency) and the temporal upscalers (0 to
-    kMaxTemporalUpscaler)."""
+    latency levels (0 to kMaxMotionBlur, kMaxLowLatency), the temporal upscalers (0 to
+    kMaxTemporalUpscaler) and the anti-aliasing methods (0 to kMaxAntiAliasing)."""
     header, script = read("DAORecomp/settings.h"), read("DAORecomp/ui/graphics_tab.as")
     blur = re.search(r"kMaxMotionBlur = (\d+);", header)
     latency = re.search(r"kMaxLowLatency = (\d+);", header)
     upscalers = re.search(r"enum class TemporalUpscaler \{([^}]*)\}", header)
-    if not (blur and latency and upscalers
+    anti_aliasing = re.search(r"enum class AntiAliasing \{([^}]*)\}", header)
+    if not (blur and latency and upscalers and anti_aliasing
             and "kMaxTemporalUpscaler = int(TemporalUpscaler::"
-                + upscalers.group(1).split(",")[-1].strip() + ");" in header):
+                + upscalers.group(1).split(",")[-1].strip() + ");" in header
+            and "kMaxAntiAliasing = int(AntiAliasing::"
+                + anti_aliasing.group(1).split(",")[-1].strip() + ");" in header):
         sys.exit("settings.h: the options' lists aren't where this script reads them")
     out = []
     for key, values in [("MotionBlur", list(range(0, int(blur.group(1)) + 1))),
                         ("LowLatency", list(range(0, int(latency.group(1)) + 1))),
-                        ("TemporalUpscaler", list(range(len(upscalers.group(1).split(",")))))]:
+                        ("TemporalUpscaler", list(range(len(upscalers.group(1).split(","))))),
+                        ("AntiAliasing", list(range(len(anti_aliasing.group(1).split(",")))))]:
         row = re.search(rf'key: "{key}"[^}}]*?values: \[([^\]]*)\]', script, re.S)
         if not row:
             sys.exit(f"graphics_tab.as: no {key} row with values (this script reads it)")

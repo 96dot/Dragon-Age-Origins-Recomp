@@ -55,7 +55,7 @@ namespace dao::gpu
     void XeniaSetInterruptCallback(uint32_t callback, uint32_t userData);
     void XeniaWriteRegister(uint32_t address, uint32_t value);
     // Whether the game should render its 3D scenes single-sampled in one tile
-    // (the temporal upscaler is running and antialiases them).
+    // (the temporal upscaler or SMAA is running and antialiases them).
     bool XeniaWantsSingleSampleScene();
 
     // VdSwap: writes the swap packet (front buffer fetch constant + XE_SWAP) into
