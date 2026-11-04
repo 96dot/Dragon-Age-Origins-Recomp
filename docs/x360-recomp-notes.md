@@ -184,6 +184,11 @@ recipes) is in [porting-playbook.md](porting-playbook.md).
     tangents as struct lists, the 360's as one float list.
   - Meshes: vertices in the 360's formats (packed normals and tangents, half floats)
     and declarations; vertex and index data padded as the game's own files are.
+  - Skeletons: PC models have 104 bones, the 360's 92 (36 on distant models), numbered
+    differently. Palette order stays (vertices index it); its bones and the nodes'
+    indices are matched by name to the game's model. Ring and little fingers use the
+    360's middle-finger joints; on distant models, omitted joints fold into their nearest
+    retained parent. A skinned `.msh` replacing a game file needs its PC `.mmh`.
   - Textures: `.dds` to `.xds` (tiled, with the trailer), PC normal maps (DXT5 with X
     in alpha) to DXN, as the 360's are.
   - Distant models: the 360 has smaller copies of models, materials and textures

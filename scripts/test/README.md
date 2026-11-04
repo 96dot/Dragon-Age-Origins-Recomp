@@ -49,7 +49,9 @@ Buttons, joined with `+` (`A+LB`): `A B X Y START BACK LB RB LT RT LS RS GUIDE`,
 forth while turning the camera), `new_game.txt` (a new game's opening, into its first
 conversation), `options_menu.txt`, `save_game.txt` (its load steps
 follow the developer's saves; adjust them), `sandbox_overwrite_save.txt` (overwrites
-a save: only in a sandbox) and `photo_mode.txt` (goes through photo mode's controls; with
+a save: only in a sandbox), `body_mesh.txt` (108 s with `CAPTURE=5`, in a sandbox whose
+latest save is unarmored in an open area: close view, camera distance and walking), and
+`photo_mode.txt` (goes through photo mode's controls; with
 `EXTRA="DAO_PHOTO_DIR=<folder>"` for the photo, and `capture_window.ps1` for the overlay,
 which the game's captures leave out). To make a
 new one, run with captures every 2 s, read the times off the contact sheet, and keep
@@ -171,6 +173,17 @@ pack's again from 80 s.
   `watch_windows.ps1`: logs the game window's size, position and DPI on every change.
 
 ## Content
+
+- `skeleton_test.cpp`: PC-to-console bone numbering, preserved palette order,
+  omitted finger joints, reduced distant rigs, invalid palettes and failure without
+  partial changes. No game files needed; the conversion's own check of models against
+  meshes (`CheckSkeletons` in `convert.cpp`) isn't covered. With two arguments (a PC
+  `.mmh`, the game's) it converts those instead. From the repo root:
+
+  ```
+  mkdir build\skeleton_test
+  scripts\env.cmd clang-cl /nologo /std:c++20 /EHsc /DDAO_LAUNCHER_ONLY /DNOMINMAX /DWIN32_LEAN_AND_MEAN /DFMT_HEADER_ONLY /IDAORecomp /Itools\XenonRecomp\XenonUtils /Itools\xenia-canary\third_party\fmt\include scripts\test\skeleton_test.cpp DAORecomp\mods\convert\skeleton.cpp DAORecomp\mods\convert\gff.cpp /Fobuild\skeleton_test\ /Febuild\skeleton_test\test.exe && build\skeleton_test\test.exe
+  ```
 
 - `convert_regress.py <work dir> <PC mod>=<earlier conversion>...`: converts copies of PC
   mods with the current build and lists the files that changed since an earlier

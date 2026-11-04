@@ -53,6 +53,8 @@ and press Convert to turn its files into the Xbox 360 version's formats: GFF
 files are rewritten in the 360's byte order and layouts, meshes' vertices and
 .dds textures (to .xds) converted, archives and packages unpacked into
 override/, and smaller copies made for distant models where the game has them.
-Files that can't be converted are left out and listed. The mod's PC files are
+Files that can't be converted are left out and listed; but a problem with a
+character's model or mesh stops the conversion without changing anything, and a
+skinned mesh replacing a game file needs its PC model (.mmh) in the mod. The mod's PC files are
 moved to mods/.originals/<mod folder>/, keeping their paths, so you can undo it
 by moving them back.

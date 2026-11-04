@@ -354,6 +354,18 @@ namespace dao::mods::convert
         }
     }
 
+    bool IsSkinned(const gff::File& mesh)
+    {
+        const auto* chunks = mesh.root.Find(kChunks);
+        return chunks && std::ranges::any_of(chunks->items, [](const gff::Value& chunk) {
+            const auto* declaration = chunk.Find(kDeclaration);
+            return declaration && std::ranges::any_of(declaration->items, [](const gff::Value& row) {
+                const auto* usage = row.Find(kDeclUsage);
+                return usage && usage->U32() == kBlendIndices;
+            });
+        });
+    }
+
     std::optional<std::string> ConvertMesh(gff::File& mesh)
     {
         gff::Value& root = mesh.root;

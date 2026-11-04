@@ -138,7 +138,8 @@ python -I scripts/as2c.py DAORecomp/ui/pause_menu.as DAORecomp/ui/pause_menu_as.
 
 `check_include_case.py` checks against the Windows SDK in `tools/winsysroot`, which the
 installer fetches. `scripts/test/release_list_test.cpp` tests the launcher's choice of
-update (its build command is in `scripts/test/README.md`).
+update, and `scripts/test/skeleton_test.cpp` the converter's bone matching (their build
+commands are in `scripts/test/README.md`; CI doesn't run these two).
 
 ### Title Update 7 (needs the game's dumps)
 

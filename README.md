@@ -330,6 +330,14 @@ first time the Mods page opens it explains this (`mods_warning_seen` in the
 `[launcher]` section of `userdata/config.toml` records that it was read). In the game,
 *Options → Graphics → Manage mods* closes it and opens the launcher's Mods page.
 
+A skinned PC mesh (`.msh`) that replaces a game file needs its PC model (`.mmh`) in
+the same mod: if a body mod ships only its meshes, add the original PC model, or the
+conversion stops. The converter matches a model's bones by name to the game's Xbox 360
+model of the same name. A problem with a skinned model or mesh stops the conversion
+without changing the mod's files. Skinned models with new names have no game model to
+match, so they keep the PC's bone numbering and may look wrong; the converter says so.
+Checked in game with NBaio on human and dwarf bodies; not yet on Qunari or distant models.
+
 PC texture packs (`.dds` files, such as *AP Neural Enhanced Diffusion Textures* on Nexus
 Mods) go in `texture packs/`, next to `game/` (in any folders inside it; the launcher's
 *Texture Packs* page turns them on and off, and its *Open the texture packs folder* makes

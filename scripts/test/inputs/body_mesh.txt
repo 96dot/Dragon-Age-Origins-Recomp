@@ -1,0 +1,16 @@
+# Loads the latest save, so in a sandbox (run_sandbox.sh) make that an isolated
+# save with armor/clothing removed. Inspect a close pose, move
+# the photo camera away and back, then walk. Run for 108 s with CAPTURE=5.
+# Pick an open area; inspect captures for scenery hiding the distant model.
+every 2 START 0.2 from 10 until 26
+27 A 0.2
+42 RLEFT 1.2
+46 LDOWN 1.0
+50 LS+RS 0.3
+53 UP 0.9
+64 DOWN 0.9
+67 LDOWN 1.5
+77 LUP 1.5
+85 B 0.2
+every 4 LUP 1.5 from 88 until 100
+every 4 LDOWN 1.5 from 90 until 102
