@@ -24,6 +24,9 @@ namespace dao::mods::convert
     bool HasSkeleton(const gff::File& model);
     std::u16string ModelMeshName(const gff::File& model);
 
+    // Whether a model has every bone of another, by name.
+    bool HasBonesOf(const gff::File& model, const gff::File& other);
+
     // Shared character skeletons are indexed differently on PC and Xbox 360.
     // Keep the mod's per-mesh palette order (its vertex indices refer to it), but
     // resolve its entries and node indices by bone name against the game model.

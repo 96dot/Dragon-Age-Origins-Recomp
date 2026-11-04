@@ -2,6 +2,8 @@
 #include "mods/convert/mesh.h"
 #include "text.h"
 
+#include <set>
+
 namespace dao::mods::convert
 {
     namespace
@@ -66,6 +68,21 @@ namespace dao::mods::convert
     std::u16string ModelMeshName(const gff::File& model)
     {
         return Text(model.root, kMeshName);
+    }
+
+    bool HasBonesOf(const gff::File& model, const gff::File& other)
+    {
+        std::set<std::u16string> bones;
+        Walk(model.root, [&](const gff::Value& node) {
+            if (const auto* index = node.Find(kBoneIndex); index && index->U32() != kNoBone)
+                bones.insert(Name(node));
+        });
+        bool all = true;
+        Walk(other.root, [&](const gff::Value& node) {
+            if (const auto* index = node.Find(kBoneIndex); index && index->U32() != kNoBone)
+                all = all && bones.contains(Name(node));
+        });
+        return all;
     }
 
     std::optional<std::string> ConvertSkeleton(gff::File& model, const gff::File& gameModel, bool distant)

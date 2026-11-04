@@ -117,6 +117,11 @@ int main(int argc, char** argv)
         Check(!convert::ConvertSkeleton(pc, noSkeleton), "unweighted bones on a rigid game model rejected");
         Check(pc.root.At(6256).U32() == 5 && pc.root.At(6999).items[0].At(6254).U32() == 4, "rigid game model's bones changed");
 
+        // New models take a game body's numbers only with every bone of its rig.
+        pc = Rig(true);
+        Check(convert::HasBonesOf(pc, xbox), "full rig not recognized");
+        Check(!convert::HasBonesOf(xbox, pc), "partial rig taken for a full one");
+
         pc = Rig(true);
         pc.root.At(6256).SetU32(5000);
         Check(bool(convert::ConvertSkeleton(pc, xbox)), "absurd bone count accepted");

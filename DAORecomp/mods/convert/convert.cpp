@@ -727,11 +727,12 @@ namespace dao::mods
                 return Counted(mods::ReadHead(job.source, size_t(std::min<uintmax_t>(templatesEnd, kMaxFileBytes))));
             }
 
-            // The game's model that a job's .mmh replaces. Nothing if the game has none
-            // (or error, if it has but can't be read).
+            // The game's model whose bone numbers a job's .mmh takes: the one it replaces, or
+            // the one BorrowRig chose. Nothing if there's none (or error, if it can't be read).
             std::optional<gff::File> GameModel(const Job& job, std::optional<std::string>& error)
             {
-                const std::string name = Lower(Utf8(job.target.filename()));
+                const auto borrowed = borrowedRigs_.find(job.target);
+                const std::string name = borrowed != borrowedRigs_.end() ? borrowed->second : Lower(Utf8(job.target.filename()));
                 if (!game_.Has(name))
                     return std::nullopt;
                 const auto original = game_.ReadFile(name, kMaxGameFileBytes);
@@ -745,10 +746,41 @@ namespace dao::mods
             }
 
             // Whether a job's .mmh is for a distant model: a copy made here, or the mod's own.
-            static bool IsDistant(const Job& job)
+            bool IsDistant(const Job& job) const
             {
+                if (const auto borrowed = borrowedRigs_.find(job.target); borrowed != borrowedRigs_.end())
+                    return !borrowed->second.ends_with("_0.mmh");
                 const std::string stem = Lower(Utf8(job.target.stem()));
                 return job.distant || stem.ends_with("_2") || stem.ends_with("_3");
+            }
+
+            // A new model has no game model of its own. Nearly all of a playable race's models
+            // are numbered like its nude body at each detail level, so a model with every bone
+            // of that rig takes its numbers. Whether it could (others keep the PC's). A name's
+            // _2 or _3 is a detail level only beside its _0: alone, it may be a style.
+            bool BorrowRig(const Job& job, const gff::File& model)
+            {
+                const std::string stem = Lower(Utf8(job.target.stem()));
+                constexpr std::string_view kRaces[] = { "hf_", "hm_", "ef_", "em_", "df_", "dm_", "qm_" };
+                if (!std::ranges::any_of(kRaces, [&](std::string_view race) { return stem.starts_with(race); }))
+                    return false;
+                const bool lod = stem.ends_with("_2") || stem.ends_with("_3");
+                const fs::path detail = job.target.parent_path() /
+                    FromUtf8(stem.substr(0, stem.size() - (lod ? 1 : 0)) + (lod ? "0.mmh" : ""));
+                const bool distant = lod && std::ranges::any_of(jobs_, [&](const Job& other) {
+                    return Lower(Utf8(other.target)) == Lower(Utf8(detail));
+                });
+                const char level = distant ? stem.back() : '0';
+                const std::string name = fmt::format("{}_arm_nuda_{}.mmh", stem.substr(0, 2), level);
+                const auto original = game_.ReadFile(name, kMaxGameFileBytes);
+                const auto reference = original ? gff::Read(*original) : std::nullopt;
+                if (!reference || !reference->IsX360() || !HasBonesOf(model, *reference))
+                    return false;
+                gff::File attempt = model;
+                if (ConvertSkeleton(attempt, *reference, distant))
+                    return false;
+                borrowedRigs_.emplace(job.target, name);
+                return true;
             }
 
             // A job's name in messages (a copy shares its original's label).
@@ -765,7 +797,7 @@ namespace dao::mods
             {
                 const auto readBefore = readBytes_;
                 std::map<std::string, bool> modelMeshes;   // mesh file names, whether their model has bones
-                size_t unmatched = 0;
+                size_t unmatched = 0, borrowed = 0;
                 for (const Job& job : jobs_)
                 {
                     if (Stopped())
@@ -786,7 +818,12 @@ namespace dao::mods
                         modelMeshes[Lower(Utf8(job.target.stem())) + ".msh"] |= rigged;
                     }
                     std::optional<std::string> error;
-                    const auto reference = GameModel(job, error);
+                    auto reference = GameModel(job, error);
+                    if (!reference && !error && rigged && BorrowRig(job, *model))
+                    {
+                        ++borrowed;
+                        reference = GameModel(job, error);
+                    }
                     if (reference)
                         error = ConvertSkeleton(*model, *reference, IsDistant(job));
                     if (error)
@@ -827,9 +864,12 @@ namespace dao::mods
                 }
                 // These files are read and counted again when they're converted.
                 readBytes_ = readBefore;
+                if (borrowed)
+                    result_.notes.push_back(fmt::format("{} new model{} the bone numbers of the game's nude body of "
+                        "the same race.", borrowed, borrowed == 1 ? " takes" : "s take"));
                 if (unmatched)
-                    result_.notes.push_back(fmt::format("{} skinned file{} no model of the same name in the game to "
-                        "take bone numbers from, so {} the PC version's and may look wrong in the game (twisted limbs).",
+                    result_.notes.push_back(fmt::format("{} skinned file{} no game model to take bone numbers from, "
+                        "so {} the PC version's and may look wrong in the game (twisted limbs).",
                         unmatched, unmatched == 1 ? " has" : "s have", unmatched == 1 ? "it keeps" : "they keep"));
                 return true;
             }
@@ -1177,6 +1217,7 @@ namespace dao::mods
             uint64_t readBytes_ = 0;
             bool tooMuch_ = false;   // more than kMaxReadBytes
             std::set<std::string> skinned_;   // labels of the files with bones, which can't be left out
+            std::map<fs::path, std::string> borrowedRigs_;   // new models' targets, the game models they follow
             std::vector<PcArchive> archives_;
             std::vector<Job> jobs_;
             std::unordered_map<std::string, size_t> targets_;   // lower-case target -> job

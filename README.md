@@ -334,9 +334,10 @@ A skinned PC mesh (`.msh`) that replaces a game file needs its PC model (`.mmh`)
 the same mod: if a body mod ships only its meshes, add the original PC model, or the
 conversion stops. The converter matches a model's bones by name to the game's Xbox 360
 model of the same name. A problem with a skinned model or mesh stops the conversion
-without changing the mod's files. Skinned models with new names have no game model to
-match, so they keep the PC's bone numbering and may look wrong; the converter says so.
-Checked in game with NBaio on human and dwarf bodies; not yet on Qunari or distant models.
+without changing the mod's files. A skinned model with a new name takes its numbers from
+the game's nude body of its race (the `hf_`, `hm_`, `ef_`, `em_`, `df_`, `dm_` or `qm_`
+at the start of its name) if it has every bone of that rig. Others, such as creatures,
+keep the PC's numbering and may look wrong; the converter says so. Checked in game with NBaio on human and dwarf bodies; not yet on Qunari or distant models.
 
 PC texture packs (`.dds` files, such as *AP Neural Enhanced Diffusion Textures* on Nexus
 Mods) go in `texture packs/`, next to `game/` (in any folders inside it; the launcher's

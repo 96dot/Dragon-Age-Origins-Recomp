@@ -188,7 +188,11 @@ recipes) is in [porting-playbook.md](porting-playbook.md).
     differently. Palette order stays (vertices index it); its bones and the nodes'
     indices are matched by name to the game's model. Ring and little fingers use the
     360's middle-finger joints; on distant models, omitted joints fold into their nearest
-    retained parent. A skinned `.msh` replacing a game file needs its PC `.mmh`.
+    retained parent. A skinned `.msh` replacing a game file needs its PC `.mmh`. Of the
+    game's models, 98% of the playable races' `_0` and nearly all their `_2`/`_3` share
+    their detail level's numbering, including every `<race>_arm_nuda_N`, so a new model
+    with all of a rig's bones takes that body's. Some game models are numbered differently
+    (`hf_cth_nblb_0`) and each model holds its own numbers.
   - Textures: `.dds` to `.xds` (tiled, with the trailer), PC normal maps (DXT5 with X
     in alpha) to DXN, as the 360's are.
   - Distant models: the 360 has smaller copies of models, materials and textures
