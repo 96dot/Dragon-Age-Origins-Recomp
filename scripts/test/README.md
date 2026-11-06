@@ -118,7 +118,11 @@ there its blur leaves gaps, and bright edges get offset copies (issue #11).
 The game's own depth of field (in conversations; not the recomp's, above) blurs at half
 the console's resolution too, and those passes are drawn at the console's resolution the
 same way, then blended over the scene with bilinear filtering (the console's point
-sampling shows sharp blocks at a higher resolution).
+sampling shows sharp blocks at a higher resolution). The blend's state sets only the
+blur's min and mag filters, so its mip filter is whatever an earlier draw left: where
+that's point or base map, Xenia's snap to texel centers for point sampling would bring
+the blocks back (it can change from scene to scene), so it's off for the blur. Compare
+with `video.temporal_upscaler="off"`: temporal upscaling's jitter hides the blocks.
 `xenia.dao_native_depth_of_field=false` turns both off: the passes are drawn at the
 scale, where the blurred background gets thin streaks (issue #13), and the blend
 point-samples again. `video.console_depth_of_field=false` (the setting, or its cvar

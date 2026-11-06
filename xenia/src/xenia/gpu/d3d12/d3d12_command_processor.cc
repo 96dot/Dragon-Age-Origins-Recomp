@@ -4702,6 +4702,13 @@ XE_NOINLINE void D3D12CommandProcessor::UpdateSystemConstantValues_Impl(
     // cache misses here, we're accessing the texture bindings out of order
     uint32_t texture_integer_scale_bits =
         texture_cache_->GetActiveIntegerScaleBits(texture_index);
+    // DAO: no texel center snap (bit 26) for the fetch constant UpdateBindings
+    // makes bilinear (the game's depth of field's blur). The game leaves its
+    // mip filter to earlier draws, and with a point or base map one all its
+    // filters count as point, so the snap would undo the bilinear filtering.
+    if (texture_index == render_target_cache_->dao_linear_fetch_constant()) {
+      texture_integer_scale_bits &= ~(UINT32_C(1) << 26);
+    }
     update_dirty_uint32_cmp(
         system_constants_.texture_integer_scale_bits[texture_index],
         texture_integer_scale_bits);
@@ -5357,7 +5364,8 @@ bool D3D12CommandProcessor::UpdateBindings(const D3D12Shader* vertex_shader,
             texture_cache_->GetSamplerParameters(samplers_pixel_derefed[i]);
         // DAO: bilinear for the fetch constant DaoOnDraw picks (the game's
         // depth of field's blend), where the shader takes the filter from
-        // the fetch constant (DaoOnDraw checks the format can be filtered).
+        // the fetch constant (DaoOnDraw checks the format can be filtered);
+        // UpdateSystemConstantValues_Impl turns its texel center snap off.
         if (samplers_pixel_derefed[i].fetch_constant ==
                 render_target_cache_->dao_linear_fetch_constant() &&
             samplers_pixel_derefed[i].mag_filter ==

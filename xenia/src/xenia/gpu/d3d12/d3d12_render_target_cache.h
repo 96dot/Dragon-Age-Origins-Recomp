@@ -78,7 +78,8 @@ class D3D12RenderTargetCache final : public RenderTargetCache {
   bool DaoOnDraw(uint64_t pixel_shader_hash);
   // The fetch constant of the draw's pixel shader sampler to make bilinear
   // (the game's depth of field's blend reading its half-resolution blur), or
-  // UINT32_MAX.
+  // UINT32_MAX. Its sampler is made bilinear (UpdateBindings), and its texel
+  // center snap is turned off (UpdateSystemConstantValues_Impl).
   uint32_t dao_linear_fetch_constant() const {
     return dao_linear_fetch_constant_;
   }

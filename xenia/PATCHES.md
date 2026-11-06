@@ -70,7 +70,9 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   Fade at full resolution too); the frame latency wait, HDR output and scRGB
   captures (presenter); device removed logging and `DAO_DRED` (provider). The
   depth of field's blend also reads its blur bilinear rather than point
-  sampled (the sampler set in `d3d12_command_processor.cc`'s `UpdateBindings`).
+  sampled (the sampler set in `d3d12_command_processor.cc`'s `UpdateBindings`,
+  and the texel center snap of point sampling turned off in
+  `UpdateSystemConstantValues_Impl`).
   With `dao_console_depth_of_field` off, the game's depth of field's passes
   are skipped (`IssueDraw` returns before drawing them) and its blend draws
   the scene alone (its MaxBlur constant zeroed in `UpdateBindings`).
