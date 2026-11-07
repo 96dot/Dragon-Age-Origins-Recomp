@@ -24,7 +24,7 @@
 //
 ps_5_1
 dcl_globalFlags refactoringAllowed | forceEarlyDepthStencil
-dcl_constantbuffer CB0[0:0][4], immediateIndexed, space=0
+dcl_constantbuffer CB0[0:0][5], immediateIndexed, space=0
 dcl_resource_texture2d (float,float,float,float) T0[2:2], space=0
 dcl_input_ps_siv linear noperspective v0.xy, position
 dcl_input_ps linear v1.xyz
@@ -48,11 +48,11 @@ if_nz r0.x
   mov o0.xy, l(0,0,0,0)
   ret 
 endif 
-add r0.xy, v0.xyxx, -CB0[0][3].xyxx
+add r0.xy, v0.xyxx, -CB0[0][4].zwzz
 div r0.zw, v1.xxxy, v1.zzzz
 mul r0.zw, r0.zzzw, l(0.000000, 0.000000, 0.500000, 0.500000)
 mad r0.zw, r0.zzzw, l(0.000000, 0.000000, 1.000000, -1.000000), l(0.000000, 0.000000, 0.500000, 0.500000)
-mad r0.zw, r0.zzzw, CB0[0][2].xxxy, CB0[0][1].zzzw
+mad r0.zw, r0.zzzw, CB0[0][3].zzzw, CB0[0][3].xxxy
 add r0.xy, -r0.xyxx, r0.zwzz
 and r0.zw, r0.xxxy, l(0, 0, 0x7f800000, 0x7f800000)
 ine r0.zw, r0.zzzw, l(0, 0, 0x7f800000, 0x7f800000)
@@ -64,10 +64,10 @@ ret
 
 const BYTE dao_upscale_mv_ps[] =
 {
-     68,  88,  66,  67,  74,  98, 
-    159, 219,  89, 114, 143, 107, 
-    151,  57, 164, 252,  36, 142, 
-    210, 239,   1,   0,   0,   0, 
+     68,  88,  66,  67, 179,   7, 
+     42, 232,  58, 179, 212, 196, 
+     93, 117, 180, 174, 193, 161, 
+     27, 171,   1,   0,   0,   0, 
      72,   4,   0,   0,   3,   0, 
       0,   0,  44,   0,   0,   0, 
     156,   0,   0,   0, 208,   0, 
@@ -105,7 +105,7 @@ const BYTE dao_upscale_mv_ps[] =
      89,   0,   0,   7,  70, 142, 
      48,   0,   0,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
-      0,   0,   4,   0,   0,   0, 
+      0,   0,   5,   0,   0,   0, 
       0,   0,   0,   0,  88,  24, 
       0,   7,  70, 126,  48,   0, 
       0,   0,   0,   0,   2,   0, 
@@ -184,10 +184,10 @@ const BYTE dao_upscale_mv_ps[] =
       0,   1,   0,   0,   0,  10, 
      50,   0,  16,   0,   0,   0, 
       0,   0,  70,  16,  16,   0, 
-      0,   0,   0,   0,  70, 128, 
+      0,   0,   0,   0, 230, 138, 
      48, 128,  65,   0,   0,   0, 
       0,   0,   0,   0,   0,   0, 
-      0,   0,   3,   0,   0,   0, 
+      0,   0,   4,   0,   0,   0, 
      14,   0,   0,   7, 194,   0, 
      16,   0,   0,   0,   0,   0, 
       6,  20,  16,   0,   1,   0, 
@@ -212,12 +212,12 @@ const BYTE dao_upscale_mv_ps[] =
       0,  63,  50,   0,   0,  13, 
     194,   0,  16,   0,   0,   0, 
       0,   0, 166,  14,  16,   0, 
-      0,   0,   0,   0,   6, 132, 
+      0,   0,   0,   0, 166, 142, 
      48,   0,   0,   0,   0,   0, 
-      0,   0,   0,   0,   2,   0, 
-      0,   0, 166, 142,  48,   0, 
+      0,   0,   0,   0,   3,   0, 
+      0,   0,   6, 132,  48,   0, 
       0,   0,   0,   0,   0,   0, 
-      0,   0,   1,   0,   0,   0, 
+      0,   0,   3,   0,   0,   0, 
       0,   0,   0,   8,  50,   0, 
      16,   0,   0,   0,   0,   0, 
      70,   0,  16, 128,  65,   0, 

@@ -529,32 +529,25 @@ void DaoUpscalerImpl::OnDraw(const RegisterFile& regs,
   }
 }
 
-void DaoUpscalerImpl::BeforeDraw(const Shader& vertex_shader, bool indexed,
-                                 uint32_t host_vertex_count,
-                                 bool skip_motion) {
-  if (stream_out_bound_pipeline_ && cp_.pipeline_binds_ != stream_out_binds_) {
-    stream_out_bound_pipeline_ = nullptr;
-  }
-  bool streamed = false;
+void DaoUpscalerImpl::BeforeDraw(
+    const Shader& vertex_shader,
+    const PrimitiveProcessor::ProcessingResult& primitives, bool skip_motion) {
   if (motion_pending_) {
     motion_pending_ = false;
     if (skip_motion) {
       ++motion_skipped_;
     } else {
-      streamed = CaptureMotion(vertex_shader, indexed, host_vertex_count);
+      CaptureMotion(vertex_shader, primitives);
     }
-  }
-  if (stream_out_bound_pipeline_ && !streamed) {
-    cp_.GetDeferredCommandList().DaoCallback(ExecuteRestorePipeline,
-                                             stream_out_guest_pipeline_);
-    stream_out_bound_pipeline_ = nullptr;
   }
 }
 
 void DaoUpscalerImpl::AfterDraw() {
-  // A draw's stream output buffer is bound for that draw only (see
-  // CaptureMotion).
-  CloseStreamOut();
+  if (capture_pending_) {
+    MotionDraw& draw = *capture_pending_;
+    capture_pending_ = nullptr;
+    RecordCapture(draw);
+  }
   if (hudless_pending_) {
     hudless_pending_ = false;
     CaptureHudless();
@@ -563,14 +556,6 @@ void DaoUpscalerImpl::AfterDraw() {
     hdr_pending_ = false;
     RunHdrTonemap();
   }
-}
-
-void DaoUpscalerImpl::CloseStreamOut() {
-  if (!stream_out_bound_) {
-    return;
-  }
-  stream_out_bound_ = false;
-  cp_.GetDeferredCommandList().DaoCallback(ExecuteCloseStreamOut, nullptr);
 }
 
 void DaoUpscalerImpl::CaptureHudless() {
@@ -779,7 +764,6 @@ void DaoUpscalerImpl::GetDisplaySize(uint32_t render_width,
 
 void DaoUpscalerImpl::InvalidateCommandProcessorState() {
   D3D12CommandProcessor& cp = cp_;
-  ++cp.pipeline_binds_;
   cp.current_guest_pipeline_ = nullptr;
   cp.current_external_pipeline_ = nullptr;
   cp.current_graphics_root_signature_ = nullptr;
@@ -1347,6 +1331,7 @@ void DaoUpscalerImpl::EndFrame(bool upscaled, const char* reason) {
   motion_draws_[motion_frame_].clear();
   motion_constant_data_[motion_frame_].clear();
   motion_seen_.clear();
+  capture_pending_ = nullptr;
   CloseStreamOut();
   stream_out_used_ = 0;
   stream_out_counters_used_ = 0;
@@ -1405,10 +1390,11 @@ void DaoUpscaler::OnDraw(const RegisterFile& regs,
   }
 }
 
-void DaoUpscaler::BeforeDraw(const Shader& vertex_shader, bool indexed,
-                             uint32_t host_vertex_count, bool skip_motion) {
+void DaoUpscaler::BeforeDraw(
+    const Shader& vertex_shader,
+    const PrimitiveProcessor::ProcessingResult& primitives, bool skip_motion) {
   if (impl_) {
-    impl_->BeforeDraw(vertex_shader, indexed, host_vertex_count, skip_motion);
+    impl_->BeforeDraw(vertex_shader, primitives, skip_motion);
   }
 }
 

@@ -1,5 +1,5 @@
-// DAO: temporal upscaling's motion vectors (stream output of the scene draws,
-// the motion vector pass) - see dao_upscale.h.
+// DAO: temporal upscaling's motion vectors (the scene draws' positions,
+// written with stream output, the motion vector pass) - see dao_upscale.h.
 #include "xenia/gpu/d3d12/dao_upscale_impl.h"
 
 #include <algorithm>
@@ -20,10 +20,8 @@ namespace gpu {
 namespace d3d12 {
 
 namespace shaders {
-#include "xenia/gpu/shaders/bytecode/d3d12_5_1/dao_upscale_mv_depth_ps.h"
 #include "xenia/gpu/shaders/bytecode/d3d12_5_1/dao_upscale_mv_ps.h"
 #include "xenia/gpu/shaders/bytecode/d3d12_5_1/dao_upscale_mv_vs.h"
-#include "xenia/gpu/shaders/bytecode/d3d12_5_1/fullscreen_cw_vs.h"
 }  // namespace shaders
 
 namespace {
@@ -33,6 +31,113 @@ namespace {
 // bytes apart). One for each of the last two frames: a draw's previous
 // positions are those its match wrote in the previous frame.
 constexpr uint32_t kStreamOutDataSize = 96 << 20;
+// The vertices a draw's positions are written for at most: of the vertex
+// index range it uses, with its unused ones (the index range of a draw that
+// uses few vertices of many is too costly).
+constexpr uint32_t kMaxCaptureVertices = 1 << 20;
+constexpr uint32_t kMinCaptureRangeLimit = 4096;
+
+// dao_upscale_mv.hlsli's kDaoMv* index flags.
+constexpr uint32_t kMotionIndexed = 1u;
+constexpr uint32_t kMotionIndex32 = 1u << 1;
+constexpr uint32_t kMotionStrip = 1u << 2;
+constexpr uint32_t kMotionEndianShift = 4;
+
+// A vertex index as the vertex shader gets it from an index, before the
+// offset: with the endian swap of its system constants (DxbcShaderTranslator's
+// StartVertexShader_LoadVertexIndex; DaoMvVertexIndex in dao_upscale_mv.hlsli).
+uint32_t SwapVertexIndex(uint32_t index, xenos::Endian endian) {
+  if (endian == xenos::Endian::k8in16 || endian == xenos::Endian::k8in32) {
+    index = ((index & 0x00FF00FFu) << 8) | ((index >> 8) & 0x00FF00FFu);
+  }
+  if (endian == xenos::Endian::k8in32 || endian == xenos::Endian::k16in32) {
+    index = (index << 16) | (index >> 16);
+  }
+  return index;
+}
+
+// The first and last vertex index a draw's vertex shader fetches, from its
+// indices (in guest memory, 16- or 32-bit; null if not indexed: the vertex
+// numbers), as the shader makes them vertex indices: swapped, offset, masked
+// to 24 bits and clamped (RemapAndConvertVertexIndices).
+void VertexIndexRange(const uint8_t* indices, bool index_32bit, uint32_t count,
+                      xenos::Endian endian, uint32_t offset, uint32_t min,
+                      uint32_t max, uint32_t& first_out, uint32_t& last_out) {
+  auto vertex = [&](uint32_t swapped) {
+    return std::min(std::max((swapped + offset) & xenos::kVertexIndexMask, min),
+                    max);
+  };
+  // Without the offset wrapping past 24 bits, the vertex index only grows with
+  // the swapped index: the range is that of the smallest and largest.
+  if (!indices && endian == xenos::Endian::kNone &&
+      uint64_t(count) - 1 + offset <= xenos::kVertexIndexMask) {
+    first_out = vertex(0);
+    last_out = vertex(count - 1);
+    return;
+  }
+  if (indices && !index_32bit &&
+      (endian == xenos::Endian::kNone || endian == xenos::Endian::k8in16) &&
+      0xFFFFu + offset <= xenos::kVertexIndexMask) {
+    // 16-bit indices, 8 at a time: signed minimum and maximum of the swapped
+    // values with their sign bits flipped (SSE2 compares only signed 16-bit).
+    const bool swap = endian == xenos::Endian::k8in16;
+    const __m128i flip = _mm_set1_epi16(int16_t(0x8000));
+    __m128i low = _mm_set1_epi16(INT16_MAX);
+    __m128i high = _mm_set1_epi16(INT16_MIN);
+    uint32_t i = 0;
+    for (; i + 8 <= count; i += 8) {
+      __m128i values = _mm_loadu_si128(
+          reinterpret_cast<const __m128i*>(indices + i * sizeof(uint16_t)));
+      if (swap) {
+        values = _mm_or_si128(_mm_slli_epi16(values, 8),
+                              _mm_srli_epi16(values, 8));
+      }
+      values = _mm_xor_si128(values, flip);
+      low = _mm_min_epi16(low, values);
+      high = _mm_max_epi16(high, values);
+    }
+    alignas(16) uint16_t lows[8], highs[8];
+    _mm_store_si128(reinterpret_cast<__m128i*>(lows),
+                    _mm_xor_si128(low, flip));
+    _mm_store_si128(reinterpret_cast<__m128i*>(highs),
+                    _mm_xor_si128(high, flip));
+    uint32_t smallest = UINT32_MAX, largest = 0;
+    for (uint32_t j = 0; j < 8; ++j) {
+      smallest = std::min(smallest, uint32_t(lows[j]));
+      largest = std::max(largest, uint32_t(highs[j]));
+    }
+    for (; i < count; ++i) {
+      uint16_t index;
+      std::memcpy(&index, indices + i * sizeof(uint16_t), sizeof(index));
+      const uint32_t swapped = SwapVertexIndex(index, endian);
+      smallest = std::min(smallest, swapped);
+      largest = std::max(largest, swapped);
+    }
+    first_out = vertex(smallest);
+    last_out = vertex(largest);
+    return;
+  }
+  // Any other way, one at a time.
+  uint32_t first = UINT32_MAX, last = 0;
+  for (uint32_t i = 0; i < count; ++i) {
+    uint32_t index = i;
+    if (indices) {
+      if (index_32bit) {
+        std::memcpy(&index, indices + i * sizeof(uint32_t), sizeof(uint32_t));
+      } else {
+        uint16_t index16;
+        std::memcpy(&index16, indices + i * sizeof(uint16_t),
+                    sizeof(uint16_t));
+        index = index16;
+      }
+    }
+    const uint32_t vertex_index = vertex(SwapVertexIndex(index, endian));
+    first = std::min(first, vertex_index);
+    last = std::max(last, vertex_index);
+  }
+  first_out = first;
+  last_out = last;
+}
 constexpr uint32_t kStreamOutCounterCount = 16384;
 constexpr uint32_t kStreamOutCounterSize = kStreamOutCounterCount * 16;
 constexpr uint32_t kStreamOutBufferSize =
@@ -106,18 +211,19 @@ bool DaoUpscalerImpl::InitializeMotion() {
   const ui::d3d12::D3D12Provider& provider = cp_.GetD3D12Provider();
   ID3D12Device* device = provider.GetDevice();
 
-  // Constants, current and previous positions (raw buffers), scene depth.
-  D3D12_DESCRIPTOR_RANGE ranges[3] = {};
-  for (uint32_t i = 0; i < 3; ++i) {
+  // Constants, current and previous positions (raw buffers), scene depth, the
+  // shared memory (raw, for the indices).
+  D3D12_DESCRIPTOR_RANGE ranges[4] = {};
+  for (uint32_t i = 0; i < 4; ++i) {
     ranges[i].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
     ranges[i].NumDescriptors = 1;
     ranges[i].BaseShaderRegister = i;
   }
-  D3D12_ROOT_PARAMETER parameters[4] = {};
+  D3D12_ROOT_PARAMETER parameters[5] = {};
   parameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
   parameters[0].Constants.Num32BitValues =
       sizeof(MotionConstants) / sizeof(uint32_t);
-  for (uint32_t i = 0; i < 3; ++i) {
+  for (uint32_t i = 0; i < 4; ++i) {
     parameters[1 + i].ParameterType =
         D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     parameters[1 + i].DescriptorTable.NumDescriptorRanges = 1;
@@ -172,20 +278,6 @@ bool DaoUpscalerImpl::InitializeMotion() {
             &desc, IID_PPV_ARGS(&motion_pipelines_[i])))) {
       return false;
     }
-  }
-  desc.VS.pShaderBytecode = shaders::fullscreen_cw_vs;
-  desc.VS.BytecodeLength = sizeof(shaders::fullscreen_cw_vs);
-  desc.PS.pShaderBytecode = shaders::dao_upscale_mv_depth_ps;
-  desc.PS.BytecodeLength = sizeof(shaders::dao_upscale_mv_depth_ps);
-  // Writes only depth.
-  desc.BlendState.RenderTarget[0].RenderTargetWriteMask = 0;
-  desc.RasterizerState.SlopeScaledDepthBias = 0.0f;
-  desc.RasterizerState.DepthClipEnable = TRUE;
-  desc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-  desc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-  if (FAILED(device->CreateGraphicsPipelineState(
-          &desc, IID_PPV_ARGS(&motion_depth_pipeline_)))) {
-    return false;
   }
 
   D3D12_DESCRIPTOR_HEAP_DESC heap_desc = {};
@@ -297,7 +389,9 @@ void DaoUpscalerImpl::StreamOutPipelineThread() {
       entry = stream_out_queue_.front();
       stream_out_queue_.pop_front();
     }
-    // The draw's pipeline, also writing the positions (SV_Position).
+    // The draw's vertex shader writing the positions (SV_Position), drawing
+    // points, not rasterized (PipelineCache::CreateD3D12Pipeline leaves out
+    // the pixel shader and depth then).
     static const D3D12_SO_DECLARATION_ENTRY kSoEntry = {0, "SV_Position", 0,
                                                         0, 4, 0};
     static const UINT kSoStride = 16;
@@ -306,7 +400,7 @@ void DaoUpscalerImpl::StreamOutPipelineThread() {
     stream_output.NumEntries = 1;
     stream_output.pBufferStrides = &kSoStride;
     stream_output.NumStrides = 1;
-    stream_output.RasterizedStream = 0;
+    stream_output.RasterizedStream = D3D12_SO_NO_RASTERIZED_STREAM;
     entry->state.Attach(cp_.pipeline_cache_->CreateD3D12Pipeline(
         entry->pipeline->description, &stream_output));
     if (entry->state) {
@@ -328,22 +422,28 @@ void DaoUpscalerImpl::TransitionStreamOut(uint32_t buffer,
   stream_out_states_[buffer] = state;
 }
 
-bool DaoUpscalerImpl::CaptureMotion(const Shader& vertex_shader, bool indexed,
-                                    uint32_t host_vertex_count) {
-  // Stream output writes triangle lists.
-  uint32_t output_vertex_count;
-  switch (cp_.primitive_topology_) {
-    case D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST:
-      output_vertex_count = host_vertex_count / 3 * 3;
-      break;
-    case D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP:
-      output_vertex_count =
-          host_vertex_count >= 3 ? (host_vertex_count - 2) * 3 : 0;
-      break;
-    default:
-      ++motion_skipped_;
-      return false;
+bool DaoUpscalerImpl::CaptureMotion(
+    const Shader& vertex_shader,
+    const PrimitiveProcessor::ProcessingResult& primitives) {
+  // Triangle lists and strips (without strip cuts: the pass draws them as
+  // lists), not indexed or with the guest's indices in the shared memory (the
+  // pass reads them there).
+  const bool indexed = primitives.index_buffer_type !=
+                       PrimitiveProcessor::ProcessedIndexBufferType::kNone;
+  const bool strip =
+      cp_.primitive_topology_ == D3D_PRIMITIVE_TOPOLOGY_TRIANGLESTRIP;
+  if ((!strip &&
+       cp_.primitive_topology_ != D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST) ||
+      primitives.host_primitive_reset_enabled ||
+      (indexed && primitives.index_buffer_type !=
+                      PrimitiveProcessor::ProcessedIndexBufferType::kGuestDMA)) {
+    ++motion_skipped_;
+    return false;
   }
+  const uint32_t host_vertex_count = primitives.host_draw_vertex_count;
+  const uint32_t output_vertex_count =
+      strip ? (host_vertex_count >= 3 ? (host_vertex_count - 2) * 3 : 0)
+            : host_vertex_count / 3 * 3;
   if (!output_vertex_count) {
     return false;
   }
@@ -453,7 +553,7 @@ bool DaoUpscalerImpl::CaptureMotion(const Shader& vertex_shader, bool indexed,
     // closest), among those that wrote positions.
     auto try_candidate = [&](const MotionDraw& candidate) {
       if (candidate.constants_count != constants.size() ||
-          !candidate.output_vertex_count) {
+          !candidate.motion.current_count) {
         return;
       }
       if (candidate.constants_hash == constants_hash) {
@@ -522,20 +622,38 @@ bool DaoUpscalerImpl::CaptureMotion(const Shader& vertex_shader, bool indexed,
   constant_data.insert(constant_data.end(), constants.begin(),
                        constants.end());
   draw.constants_sum = constants_sum;
-  draw.output_vertex_count = 0;
   draw.has_motion = false;
   // The positions are written for the next frame either way (unless skipped
-  // below), but without the previous ones (new this frame, or they weren't
-  // written), the motion is unknown and left at zero.
+  // below: motion.current_count 0), but without the previous ones (new this
+  // frame, or they weren't written), the motion is unknown and left at zero.
+
+  // The vertices the draw uses, as its vertex shader fetches them (from its
+  // system constants, set for the draw).
+  const DxbcShaderTranslator::SystemConstants& system = cp_.system_constants_;
+  const bool index_32bit =
+      primitives.host_index_format == xenos::IndexFormat::kInt32;
+  uint32_t first_vertex, last_vertex;
+  VertexIndexRange(
+      indexed ? cp_.memory_->TranslatePhysical<const uint8_t*>(
+                    primitives.guest_index_base)
+              : nullptr,
+      index_32bit, host_vertex_count, system.vertex_index_endian,
+      system.vertex_index_offset, system.vertex_index_min,
+      system.vertex_index_max, first_vertex, last_vertex);
+  const uint32_t vertex_count = last_vertex - first_vertex + 1;
 
   // Each draw writes to a part of the buffer and a filled-size counter of its
-  // own, bound for that draw only (unbound in AfterDraw). Appending draws to
-  // one buffer left bound was faster, but on AMD the GPU could hang when
-  // another program's GPU work preempted this one's between those draws.
-  const uint32_t size = (output_vertex_count * 16 + 255) & ~uint32_t(255);
-  const uint32_t offset = (stream_out_used_ + 255) & ~uint32_t(255);
+  // own, bound by its capture (left bound until the next capture or the
+  // motion vector pass: unbinding after each costs about 4 us of GPU time on
+  // AMD). Appending draws to one buffer was faster, but on AMD the GPU could
+  // hang when another program's GPU work preempted this one's between those
+  // draws.
+  static const bool diag_append = std::getenv("DAO_DIAG_APPEND") != nullptr;  // DIAG
+  const uint32_t size = diag_append ? vertex_count * 16 : (vertex_count * 16 + 255) & ~uint32_t(255);  // DIAG
+  const uint32_t offset = diag_append ? stream_out_used_ : (stream_out_used_ + 255) & ~uint32_t(255);  // DIAG
   if (!stream_out_pipeline || !EnsureStreamOutBuffers() ||
-      output_vertex_count > (1u << 20) ||
+      last_vertex < first_vertex || vertex_count > kMaxCaptureVertices ||
+      vertex_count > std::max(host_vertex_count * 2, kMinCaptureRangeLimit) ||
       offset + uint64_t(size) > kStreamOutDataSize ||
       stream_out_counters_used_ >= kStreamOutCounterCount) {
     ++motion_skipped_;
@@ -551,30 +669,43 @@ bool DaoUpscalerImpl::CaptureMotion(const Shader& vertex_shader, bool indexed,
         stream_out_zeros_.Get(), 0, kStreamOutCounterSize);
     stream_out_reset_ = true;
   }
+  // Before the draw: no barrier between it and the capture.
   TransitionStreamOut(motion_frame_, D3D12_RESOURCE_STATE_STREAM_OUT);
   cp_.SubmitBarriers();
 
-  draw.stream_out_pipeline = stream_out_pipeline;
+  draw.capture_pipeline = stream_out_pipeline;
   draw.output_vertex_count = output_vertex_count;
   draw.motion = motion_viewport_;
   const D3D12_GPU_VIRTUAL_ADDRESS buffer =
       stream_out_buffers_[motion_frame_]->GetGPUVirtualAddress();
   D3D12_STREAM_OUTPUT_BUFFER_VIEW& view = draw.stream_out_view;
-  const uint32_t counter = kStreamOutDataSize + stream_out_counters_used_ * 16;
   view.BufferLocation = buffer + offset;
   view.SizeInBytes = size;
-  view.BufferFilledSizeLocation = buffer + counter;
+  view.BufferFilledSizeLocation =
+      buffer + kStreamOutDataSize + stream_out_counters_used_ * 16;
+  if (diag_append) {  // DIAG
+    view.BufferLocation = buffer;
+    view.SizeInBytes = kStreamOutDataSize;
+    view.BufferFilledSizeLocation = buffer + kStreamOutDataSize;
+  }
   draw.motion.current_offset = offset;
-  draw.motion.current_counter = counter;
-  // (Its positions start where its binding does.)
-  draw.motion.current_in_buffer = 0;
+  draw.motion.current_first = first_vertex;
+  draw.motion.current_count = vertex_count;
+  draw.motion.index_address = indexed ? primitives.guest_index_base : 0;
+  draw.motion.index_flags =
+      (indexed ? kMotionIndexed : 0) | (index_32bit ? kMotionIndex32 : 0) |
+      (strip ? kMotionStrip : 0) |
+      (uint32_t(system.vertex_index_endian) << kMotionEndianShift);
+  draw.motion.vertex_index_offset = system.vertex_index_offset;
+  draw.motion.vertex_index_min = system.vertex_index_min;
+  draw.motion.vertex_index_max = system.vertex_index_max;
   stream_out_used_ = offset + size;
   ++stream_out_counters_used_;
   if (previous) {
     // Where the previous frame's draw wrote its positions, in its buffer.
     draw.motion.previous_offset = previous->motion.current_offset;
-    draw.motion.previous_counter = previous->motion.current_counter;
-    draw.motion.previous_in_buffer = previous->motion.current_in_buffer;
+    draw.motion.previous_first = previous->motion.current_first;
+    draw.motion.previous_count = previous->motion.current_count;
     draw.motion.previous_ndc_jitter[0] = previous->motion.current_ndc_jitter[0];
     draw.motion.previous_ndc_jitter[1] = previous->motion.current_ndc_jitter[1];
     draw.has_motion = true;
@@ -582,29 +713,59 @@ bool DaoUpscalerImpl::CaptureMotion(const Shader& vertex_shader, bool indexed,
   } else {
     ++motion_unmatched_;
   }
-  stream_out_bound_ = true;
-  // Pipeline binds are costly with stream output (Vulkan ends and resumes
-  // transform feedback), so the pipeline stays bound for the next draw.
-  draw.bind_pipeline = stream_out_bound_pipeline_ != stream_out_pipeline;
-  cp_.GetDeferredCommandList().DaoCallback(ExecuteBeginStreamOut, &draw);
-  stream_out_bound_pipeline_ = stream_out_pipeline;
-  stream_out_guest_pipeline_ = pipeline_state;
-  stream_out_binds_ = cp_.pipeline_binds_;
+  capture_pending_ = &draw;
   return true;
 }
 
-void DaoUpscalerImpl::ExecuteBeginStreamOut(
+void DaoUpscalerImpl::RecordCapture(MotionDraw& draw) {
+  // The draw's system constants, but with the vertex index taken as is: the
+  // capture's SV_VertexID is the vertex index (first_vertex on).
+  DxbcShaderTranslator::SystemConstants system = cp_.system_constants_;
+  system.vertex_index_endian = xenos::Endian::kNone;
+  system.vertex_index_offset = 0;
+  D3D12_GPU_VIRTUAL_ADDRESS system_address;
+  uint8_t* mapping = cp_.constant_buffer_pool_->Request(
+      cp_.frame_current_, sizeof(system),
+      D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT, nullptr, nullptr,
+      &system_address);
+  if (!mapping) {
+    // No positions: the next frame's match has no motion.
+    draw.motion.current_count = 0;
+    draw.has_motion = false;
+    return;
+  }
+  std::memcpy(mapping, &system, sizeof(system));
+  // Bound in the command processor's tracking, so that its next draw binds its
+  // own again.
+  const uint32_t system_parameter =
+      cp_.bindless_resources_used_
+          ? D3D12CommandProcessor::kRootParameter_Bindless_SystemConstants
+          : D3D12CommandProcessor::kRootParameter_Bindful_SystemConstants;
+  DeferredCommandList& command_list = cp_.GetDeferredCommandList();
+  command_list.D3DSetGraphicsRootConstantBufferView(system_parameter,
+                                                    system_address);
+  cp_.current_graphics_root_up_to_date_ &= ~(1u << system_parameter);
+  cp_.SetExternalPipeline(draw.capture_pipeline);
+  cp_.SetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_POINTLIST);
+  static const bool diag_append = std::getenv("DAO_DIAG_APPEND") != nullptr;  // DIAG
+  if (!diag_append || !stream_out_bound_) command_list.DaoCallback(ExecuteBeginCapture, &draw);  // DIAG
+  command_list.D3DDrawInstanced(draw.motion.current_count, 1,
+                                draw.motion.current_first, 0);
+  stream_out_bound_ = true;
+}
+
+void DaoUpscalerImpl::ExecuteBeginCapture(
     void* context, ID3D12GraphicsCommandList* command_list) {
   const MotionDraw& draw = *static_cast<const MotionDraw*>(context);
-  if (draw.bind_pipeline) {
-    command_list->SetPipelineState(draw.stream_out_pipeline);
-  }
   command_list->SOSetTargets(0, 1, &draw.stream_out_view);
 }
 
-void DaoUpscalerImpl::ExecuteRestorePipeline(
-    void* context, ID3D12GraphicsCommandList* command_list) {
-  command_list->SetPipelineState(static_cast<ID3D12PipelineState*>(context));
+void DaoUpscalerImpl::CloseStreamOut() {
+  if (!stream_out_bound_) {
+    return;
+  }
+  stream_out_bound_ = false;
+  cp_.GetDeferredCommandList().DaoCallback(ExecuteCloseStreamOut, nullptr);
 }
 
 void DaoUpscalerImpl::ExecuteCloseStreamOut(
@@ -627,12 +788,14 @@ void DaoUpscalerImpl::RecordMotionPass(uint32_t width, uint32_t height) {
   motion_pass_.self = this;
   motion_pass_.width = width;
   motion_pass_.height = height;
-  ui::d3d12::util::DescriptorCpuGpuHandlePair descriptors[3];
-  if (stream_out_used_ &&
-      EnsureTexture(motion_depth_, DXGI_FORMAT_D32_FLOAT, width, height,
+  // The depth buffer is a copy of the scene depth: typeless, to copy the
+  // scene depth's R32_FLOAT into it (its view is D32_FLOAT).
+  ui::d3d12::util::DescriptorCpuGpuHandlePair descriptors[4];
+  if (stream_out_used_ && depth_.width == width && depth_.height == height &&
+      EnsureTexture(motion_depth_, DXGI_FORMAT_R32_TYPELESS, width, height,
                     "motion vector depth",
                     D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) &&
-      cp_.RequestOneUseSingleViewDescriptors(3, descriptors)) {
+      cp_.RequestOneUseSingleViewDescriptors(4, descriptors)) {
     D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
     srv.Format = DXGI_FORMAT_R32_TYPELESS;
     srv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
@@ -651,24 +814,38 @@ void DaoUpscalerImpl::RecordMotionPass(uint32_t width, uint32_t height) {
     srv.Texture2D.MipLevels = 1;
     device->CreateShaderResourceView(depth_.resource.Get(), &srv,
                                      descriptors[2].first);
+    srv = {};
+    srv.Format = DXGI_FORMAT_R32_TYPELESS;
+    srv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Buffer.NumElements = SharedMemory::kBufferSize / sizeof(uint32_t);
+    srv.Buffer.Flags = D3D12_BUFFER_SRV_FLAG_RAW;
+    device->CreateShaderResourceView(cp_.shared_memory_->GetBuffer(), &srv,
+                                     descriptors[3].first);
     motion_pass_.draws = &draws;
     motion_pass_.positions = descriptors[0].second;
     motion_pass_.previous_positions = descriptors[1].second;
     motion_pass_.depth = descriptors[2].second;
+    motion_pass_.shared_memory = descriptors[3].second;
     D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
-    dsv.Format = motion_depth_.format;
+    dsv.Format = DXGI_FORMAT_D32_FLOAT;
     dsv.ViewDimension = D3D12_DSV_DIMENSION_TEXTURE2D;
     device->CreateDepthStencilView(
         motion_depth_.resource.Get(), &dsv,
         motion_dsv_heap_->GetCPUDescriptorHandleForHeapStart());
-    // Created in this state and never left: only keeps the tracked state.
-    Transition(motion_depth_, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     CloseStreamOut();
+    Transition(depth_, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    Transition(motion_depth_, D3D12_RESOURCE_STATE_COPY_DEST);
+    cp_.SubmitBarriers();
+    cp_.GetDeferredCommandList().D3DCopyResource(motion_depth_.resource.Get(),
+                                                 depth_.resource.Get());
+    Transition(motion_depth_, D3D12_RESOURCE_STATE_DEPTH_WRITE);
     for (uint32_t i = 0; i < 2; ++i) {
       TransitionStreamOut(i, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     }
     Transition(depth_, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE |
                            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+    cp_.shared_memory_->UseForReading();
   }
   Transition(motion_vectors_, D3D12_RESOURCE_STATE_RENDER_TARGET);
   cp_.SubmitBarriers();
@@ -701,8 +878,7 @@ void DaoUpscalerImpl::ExecuteMotionPass(
   command_list->SetGraphicsRootDescriptorTable(1, pass.positions);
   command_list->SetGraphicsRootDescriptorTable(2, pass.previous_positions);
   command_list->SetGraphicsRootDescriptorTable(3, pass.depth);
-  command_list->SetPipelineState(self.motion_depth_pipeline_.Get());
-  command_list->DrawInstanced(3, 1, 0, 0);
+  command_list->SetGraphicsRootDescriptorTable(4, pass.shared_memory);
   ID3D12PipelineState* current_pipeline = nullptr;
   for (const MotionDraw& draw : *pass.draws) {
     if (!draw.has_motion) {

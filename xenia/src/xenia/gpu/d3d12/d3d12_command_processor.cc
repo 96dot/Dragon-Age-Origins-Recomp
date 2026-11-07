@@ -662,7 +662,6 @@ void D3D12CommandProcessor::SetExternalPipeline(ID3D12PipelineState* pipeline) {
     current_external_pipeline_ = pipeline;
     current_guest_pipeline_ = nullptr;
     deferred_command_list_.D3DSetPipelineState(pipeline);
-    ++pipeline_binds_;
   }
 }
 
@@ -2967,7 +2966,6 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
         reinterpret_cast<void*>(pipeline_handle));
     current_guest_pipeline_ = pipeline_handle;
     current_external_pipeline_ = nullptr;
-    ++pipeline_binds_;
   }
 
   // Get dynamic rasterizer state. Using the resolution scale of this draw,
@@ -3232,13 +3230,9 @@ bool D3D12CommandProcessor::IssueDraw(xenos::PrimitiveType primitive_type,
 
   // Draw.
   OnVIZSurveyDraw(true);
-  // DAO: the draw writes its positions for motion vectors.
-  DaoUpscaler::BeforeDraw(
-      *vertex_shader,
-      primitive_processing_result.index_buffer_type !=
-          PrimitiveProcessor::ProcessedIndexBufferType::kNone,
-      primitive_processing_result.host_draw_vertex_count,
-      memexport_used || predicate_buffer);
+  // DAO: its positions are written for motion vectors after the draw.
+  DaoUpscaler::BeforeDraw(*vertex_shader, primitive_processing_result,
+                          memexport_used || predicate_buffer);
   if (primitive_processing_result.index_buffer_type ==
       PrimitiveProcessor::ProcessedIndexBufferType::kNone) {
     if (!memexport_used) {

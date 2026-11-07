@@ -3301,6 +3301,17 @@ ID3D12PipelineState* PipelineCache::CreateD3D12Pipeline(
 
   if (stream_output) {
     state_desc.StreamOutput = *stream_output;
+    // DAO: not rasterized (writing a draw's positions for motion vectors, a
+    // point per vertex): no pixel shader or depth / stencil.
+    if (stream_output->RasterizedStream == D3D12_SO_NO_RASTERIZED_STREAM &&
+        !state_desc.HS.pShaderBytecode && !state_desc.GS.pShaderBytecode) {
+      state_desc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_POINT;
+      state_desc.IBStripCutValue = D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
+      state_desc.PS.pShaderBytecode = nullptr;
+      state_desc.PS.BytecodeLength = 0;
+      state_desc.DepthStencilState.DepthEnable = false;
+      state_desc.DepthStencilState.StencilEnable = false;
+    }
   }
 
   // Create the D3D12 pipeline state object.

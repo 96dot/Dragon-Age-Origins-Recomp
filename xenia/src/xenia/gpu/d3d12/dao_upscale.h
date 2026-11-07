@@ -43,6 +43,7 @@
 #include <cstdint>
 
 #include "xenia/gpu/draw_util.h"
+#include "xenia/gpu/primitive_processor.h"
 #include "xenia/gpu/register_file.h"
 #include "xenia/gpu/registers.h"
 #include "xenia/gpu/shader.h"
@@ -77,10 +78,11 @@ class DaoUpscaler {
                      uint32_t normalized_color_mask, uint64_t pixel_shader_hash,
                      uint32_t pixel_shader_texture_mask,
                      bool window_offset_in_edram);
-  // Right before the draw is recorded, with its pipeline set (skip_motion:
-  // memexport or predicated).
-  static void BeforeDraw(const Shader& vertex_shader, bool indexed,
-                         uint32_t host_vertex_count, bool skip_motion);
+  // Right before the draw is recorded, with its pipeline and system constants
+  // set (skip_motion: memexport or predicated).
+  static void BeforeDraw(const Shader& vertex_shader,
+                         const PrimitiveProcessor::ProcessingResult& primitives,
+                         bool skip_motion);
   // After the draw has been recorded.
   static void AfterDraw();
   // In a resolve, before the render targets are read.

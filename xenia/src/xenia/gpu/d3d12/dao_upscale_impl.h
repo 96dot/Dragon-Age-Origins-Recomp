@@ -354,8 +354,9 @@ class DaoUpscalerImpl {
               reg::RB_DEPTHCONTROL depth_control, uint32_t color_mask,
               uint64_t pixel_shader_hash, uint32_t pixel_shader_texture_mask,
               bool window_offset_in_edram);
-  void BeforeDraw(const Shader& vertex_shader, bool indexed,
-                  uint32_t host_vertex_count, bool skip_motion);
+  void BeforeDraw(const Shader& vertex_shader,
+                  const PrimitiveProcessor::ProcessingResult& primitives,
+                  bool skip_motion);
   void AfterDraw();
   void OnResolve(const draw_util::ResolveInfo& resolve_info);
   ID3D12Resource* OnSwap(ID3D12Resource* frontbuffer,
@@ -434,10 +435,16 @@ class DaoUpscalerImpl {
   struct MotionConstants {
     uint32_t current_offset;
     uint32_t previous_offset;
-    uint32_t current_counter;
-    uint32_t previous_counter;
-    uint32_t current_in_buffer;
-    uint32_t previous_in_buffer;
+    uint32_t current_first;
+    uint32_t current_count;
+    uint32_t previous_first;
+    uint32_t previous_count;
+    uint32_t index_address;
+    uint32_t index_flags;
+    uint32_t vertex_index_offset;
+    uint32_t vertex_index_min;
+    uint32_t vertex_index_max;
+    uint32_t padding0;
     float viewport_offset[2];
     float viewport_extent[2];
     float render_size[2];
@@ -462,15 +469,16 @@ class DaoUpscalerImpl {
     // Sum of the constants (infinity if any isn't finite): the difference of
     // two is at most the distance between their constants.
     double constants_sum;
-    // The draw's pipeline with stream output.
-    ID3D12PipelineState* stream_out_pipeline;
-    // Whether stream_out_pipeline is bound before the draw (otherwise the
-    // previous draw left it bound).
-    bool bind_pipeline;
-    // Triangle list vertices of the positions written (0 if none).
-    uint32_t output_vertex_count;
-    // Bound before the draw, unbound after it.
+    // Right after the draw, its vertex shader writing the positions of its
+    // vertices (motion.current_first on, motion.current_count of them, a
+    // point each) with stream output, with the vertex index taken as is
+    // (capture_system_constants); then the draw's pipeline again.
+    ID3D12PipelineState* capture_pipeline;
+    ID3D12PipelineState* guest_pipeline;
     D3D12_STREAM_OUTPUT_BUFFER_VIEW stream_out_view;
+    D3D12_GPU_VIRTUAL_ADDRESS capture_system_constants;
+    // The draw's triangles as a list, drawn in the motion vector pass.
+    uint32_t output_vertex_count;
     // Drawn in the motion vector pass: the previous frame's draw of it wrote
     // positions.
     bool has_motion;
@@ -517,12 +525,13 @@ class DaoUpscalerImpl {
     D3D12_GPU_DESCRIPTOR_HANDLE positions;
     D3D12_GPU_DESCRIPTOR_HANDLE previous_positions;
     D3D12_GPU_DESCRIPTOR_HANDLE depth;
+    D3D12_GPU_DESCRIPTOR_HANDLE shared_memory;
     uint32_t width;
     uint32_t height;
   };
-  // A draw's vertex shader writing the positions with stream output, created
-  // in the background (it can take long, and the draw can do without motion
-  // vectors meanwhile).
+  // A draw's vertex shader writing the positions with stream output (points,
+  // not rasterized), created in the background (it can take long, and the
+  // draw can do without motion vectors meanwhile).
   struct StreamOutPipeline {
     enum Status : uint32_t { kPending, kReady, kFailed };
     const void* vertex_shader;
@@ -622,16 +631,15 @@ class DaoUpscalerImpl {
   void StreamOutPipelineThread();
   // Of stream_out_buffers_[buffer].
   void TransitionStreamOut(uint32_t buffer, D3D12_RESOURCE_STATES state);
-  // Whether the draw writes its positions.
-  bool CaptureMotion(const Shader& vertex_shader, bool indexed,
-                     uint32_t host_vertex_count);
-  // Before the draw: the pipeline with stream output and the buffer.
-  static void ExecuteBeginStreamOut(void* context,
-                                    ID3D12GraphicsCommandList* command_list);
-  // Binds the pipeline (the context).
-  static void ExecuteRestorePipeline(void* context,
-                                     ID3D12GraphicsCommandList* command_list);
-  // Unbinds the stream output buffers, if bound.
+  // Before the draw: whether its positions are to be written after it
+  // (capture_pending_), its buffer made ready.
+  bool CaptureMotion(const Shader& vertex_shader,
+                     const PrimitiveProcessor::ProcessingResult& primitives);
+  // After the draw: its vertex shader writing the positions.
+  void RecordCapture(MotionDraw& draw);
+  static void ExecuteBeginCapture(void* context,
+                                  ID3D12GraphicsCommandList* command_list);
+  // Unbinds the stream output buffer the last capture left bound, if any.
   void CloseStreamOut();
   static void ExecuteCloseStreamOut(void* context,
                                     ID3D12GraphicsCommandList* command_list);
@@ -820,8 +828,6 @@ class DaoUpscalerImpl {
   bool motion_available_ = false;
   ComPtr<ID3D12RootSignature> motion_root_signature_;
   ComPtr<ID3D12PipelineState> motion_pipelines_[kMotionPipelineCount];
-  // Copies the scene depth into the depth buffer.
-  ComPtr<ID3D12PipelineState> motion_depth_pipeline_;
   ComPtr<ID3D12DescriptorHeap> motion_rtv_heap_;
   ComPtr<ID3D12DescriptorHeap> motion_dsv_heap_;
   // Indexed by motion_frame_.
@@ -860,7 +866,10 @@ class DaoUpscalerImpl {
   uint32_t stream_out_used_ = 0;
   uint32_t stream_out_counters_used_ = 0;
   bool stream_out_reset_ = false;
-  // Whether a draw since the last CloseStreamOut bound a stream output buffer.
+  // From CaptureMotion to AfterDraw.
+  MotionDraw* capture_pending_ = nullptr;
+  // Whether a capture since the last CloseStreamOut bound a stream output
+  // buffer.
   bool stream_out_bound_ = false;
   uint32_t motion_matched_ = 0;
   uint32_t motion_unmatched_ = 0;
@@ -868,12 +877,6 @@ class DaoUpscalerImpl {
   bool motion_logged_ = false;
   // From OnDraw to BeforeDraw.
   bool motion_pending_ = false;
-  // The pipeline with stream output a draw left bound, while Xenia hasn't
-  // bound another (cp_.pipeline_binds_ is still stream_out_binds_): the next
-  // draw restores the guest one, unless it writes its positions with it too.
-  ID3D12PipelineState* stream_out_bound_pipeline_ = nullptr;
-  ID3D12PipelineState* stream_out_guest_pipeline_ = nullptr;
-  uint64_t stream_out_binds_ = 0;
   MotionConstants motion_viewport_ = {};
   uint64_t motion_pixel_shader_ = 0;
   MotionPass motion_pass_ = {};

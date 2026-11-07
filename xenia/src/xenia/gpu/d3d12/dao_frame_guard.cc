@@ -69,6 +69,10 @@ float DaoFrameGuard::NeuralScale(bool wanted) {
                   dao_live::Load(dao_live::values.frame_rate) > 0;
   const bool was_measuring = measuring_;
   measuring_ = on && wanted && !failed_;
+  static const bool diag = getenv("DAO_DIAG_GPU_TIME") != nullptr;  // DIAG
+  if (diag) {
+    measuring_ = !failed_;
+  }
   if (measuring_ && !was_measuring) {
     // Measuring again (after F6, strength 0, the guard off or no 3D scene):
     // the averages start again, of the scene now. (Eased off, the prediction
@@ -241,6 +245,16 @@ void DaoFrameGuard::ReadCompleted(D3D12CommandProcessor& cp) {
     readback_->Unmap(0, &written);
     // (Not after measuring stopped: a frame still in flight then.)
     const int32_t rate = dao_live::Load(dao_live::values.frame_rate);
+    {  // DIAG
+      static double sum = 0.0;
+      static uint32_t n = 0;
+      sum += double(busy + neural) / ticks_per_ms_;
+      if (++n == 600) {
+        XELOGI("DIAG gpu: {:.3f} ms a frame", sum / n);
+        sum = 0.0;
+        n = 0;
+      }
+    }
     if (measuring_ && rate > 0) {
       Decide(rate, double(busy + neural) / ticks_per_ms_,
              double(neural) / ticks_per_ms_, neural_ran, slot.interval_ms);
