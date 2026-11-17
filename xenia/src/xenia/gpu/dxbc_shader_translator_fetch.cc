@@ -1886,6 +1886,22 @@ void DxbcShaderTranslator::ProcessTextureFetchInstruction(
                      dxbc::Src::kXXXX),
                  dxbc::Src::LU(UINT32_C(1) << 26));
         a_.OpIf(true, dxbc::Src::R(system_temp_result_, dxbc::Src::kXXXX));
+        // DAO: a draw at the console's resolution (dao_draw_native_) reading a
+        // resolution scaled texture samples at its pixel centers, which are on
+        // the edges between the texture's host texels (at 2x, a half-size
+        // pass's centers are 4n+2 host texels into the scene). Float error
+        // then puts some on either side, and where the side changes, the
+        // image has a fixed seam (the game's depth of field, issue #13). The
+        // guest truncates its fixed-point coordinate there, taking the texel
+        // to the right or below, so the coordinate is moved that way by the
+        // epsilon (in host texels) before the snap.
+        const bool snap_bias =
+            is_pixel_shader() &&
+            GetDxbcShaderModification().pixel.resolution_scale_native;
+        if (snap_bias) {
+          a_.OpMov(dxbc::Dest::R(system_temp_result_, 0b0011),
+                   dxbc::Src::LF(kTextureCoordEpsilon));
+        }
         if (draw_resolution_scale_x_ > 1 || draw_resolution_scale_y_ > 1) {
           a_.OpAnd(dxbc::Dest::R(system_temp_result_, 0b0100),
                    LoadSystemConstant(
@@ -1898,13 +1914,24 @@ void DxbcShaderTranslator::ProcessTextureFetchInstruction(
                     dxbc::Src::LF(0.0f, 0.0f, float(draw_resolution_scale_x_),
                                   float(draw_resolution_scale_y_)),
                     dxbc::Src::LF(1.0f));
+          if (snap_bias) {
+            a_.OpMul(dxbc::Dest::R(system_temp_result_, 0b0011),
+                     dxbc::Src::R(system_temp_result_, 0b11101110),
+                     dxbc::Src::LF(kTextureCoordEpsilon));
+          }
           a_.OpMul(dxbc::Dest::R(system_temp_result_, 0b1100),
                    dxbc::Src::R(system_temp_result_),
                    dxbc::Src::R(size_and_is_3d_temp, dxbc::Src::kXYXY));
           snap_size = dxbc::Src::R(system_temp_result_, 0b11101110);
         }
-        a_.OpMul(dxbc::Dest::R(system_temp_result_, 0b0011),
-                 dxbc::Src::R(coord_and_sampler_temp), snap_size);
+        if (snap_bias) {
+          a_.OpMAd(dxbc::Dest::R(system_temp_result_, 0b0011),
+                   dxbc::Src::R(coord_and_sampler_temp), snap_size,
+                   dxbc::Src::R(system_temp_result_));
+        } else {
+          a_.OpMul(dxbc::Dest::R(system_temp_result_, 0b0011),
+                   dxbc::Src::R(coord_and_sampler_temp), snap_size);
+        }
         a_.OpRoundNI(dxbc::Dest::R(system_temp_result_, 0b0011),
                      dxbc::Src::R(system_temp_result_));
         a_.OpAdd(dxbc::Dest::R(system_temp_result_, 0b0011),

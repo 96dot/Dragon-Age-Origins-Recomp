@@ -96,6 +96,12 @@ These are this project's (MIT, the repository's `LICENSE`), not Xenia's.
   and the memexport successor walk takes a target past the control flow as the end
   instead of indexing with it. Shaders loaded from the storage file are not trusted,
   and a crafted one read past its ucode buffer.
+- `gpu/dxbc_shader_translator_fetch.cc`: in a draw made native (the bloom's and the
+  depth of field's half-resolution passes), the texel center snap of a point-sampled
+  fetch first moves the coordinate right and down by the epsilon, in host texels. Its
+  pixel centers are on the edges between a resolution-scaled texture's host texels, and
+  float error put them on either side, drawing a fixed seam in the depth of field
+  (issue #13); the guest's truncation takes the texel to the right or below.
 - GPU: `gpu/command_processor.*`, `gpu/pm4_command_processor_implement.h`,
   `gpu/graphics_system.*`, `gpu/gpu_flags.cc`, `gpu/draw_util.*`, `gpu/primitive_processor.cc`,
   `gpu/render_target_cache.*` (a draw the DAO hook makes native, whatever its pitch),
