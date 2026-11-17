@@ -336,6 +336,16 @@ class DaoUpscalerImpl {
                          bool& sharpened_out, ID3D12Resource*& generated_out);
 
  private:
+  // A frame of the game's: OnSwap's work, unless the frame is shown again.
+  ID3D12Resource* SwapFrame(ID3D12Resource* frontbuffer,
+                            const D3D12_SHADER_RESOURCE_VIEW_DESC& frontbuffer_srv,
+                            uint32_t render_width, uint32_t render_height,
+                            D3D12_SHADER_RESOURCE_VIEW_DESC& srv_out,
+                            bool& hdr_out, bool& sharpened_out,
+                            ID3D12Resource*& generated_out);
+  // Whether an image OnSwap returned is still one of the upscaler's (or none:
+  // the front buffer itself).
+  bool IsCurrentOutput(ID3D12Resource* output) const;
   struct CopyConstants {
     int32_t source_offset[2];
     int32_t dest_offset[2];
@@ -864,6 +874,25 @@ class DaoUpscalerImpl {
   int32_t scene_depth_window_offset_[2] = {};
   bool hudless_pending_ = false;
   bool hudless_captured_ = false;
+  // Resolves this frame. A frame without any leaves the front buffer as it
+  // was: in a conversation, after a reply is picked, the game swaps once
+  // without drawing anything (no scene, no depth of field, no UI), showing
+  // its last frame again, as the console does. That frame isn't upscaled (no
+  // scene), so its front buffer shown as it is would differ from the
+  // upscaled frames around it for one frame (no recomp depth of field, the
+  // scene at the render size): the last image shown is shown again instead
+  // (issue #13).
+  uint32_t frame_resolves_ = 0;
+  struct LastOutput {
+    bool valid = false;
+    ID3D12Resource* output = nullptr;
+    ID3D12Resource* frontbuffer = nullptr;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv = {};
+    bool hdr = false;
+    bool sharpened = false;
+    uint32_t render_size[2] = {};
+  };
+  LastOutput last_output_;
   // True HDR this frame (WantsTrueHdr).
   bool true_hdr_ = false;
   // The tonemapping pass, from OnDraw to AfterDraw; ran this frame.

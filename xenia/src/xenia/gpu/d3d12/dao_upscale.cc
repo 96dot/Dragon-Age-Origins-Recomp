@@ -324,6 +324,10 @@ bool DaoUpscalerImpl::Initialize() {
 
 void DaoUpscalerImpl::ReleaseTexture(Texture& texture) {
   if (texture.resource) {
+    // Not shown again once released (a new texture could get its address).
+    if (texture.resource.Get() == last_output_.output) {
+      last_output_.valid = false;
+    }
     texture.resource->AddRef();
     cp_.resources_for_deletion_.emplace_back(cp_.GetCurrentSubmission(),
                                              texture.resource.Get());
@@ -658,6 +662,7 @@ void DaoUpscalerImpl::CaptureHudless() {
 }
 
 void DaoUpscalerImpl::OnResolve(const draw_util::ResolveInfo& resolve_info) {
+  ++frame_resolves_;
   if ((!jitter_active_ && !true_hdr_ && !smaa_active_) ||
       !resolve_info.copy_dest_extent_length || !render_size_[0]) {
     return;
@@ -857,7 +862,59 @@ void DaoUpscalerImpl::InvalidateCommandProcessorState() {
   rtc_.InvalidateCommandListRenderTargets();
 }
 
+bool DaoUpscalerImpl::IsCurrentOutput(ID3D12Resource* output) const {
+  return !output || output == composite_.resource.Get() ||
+         output == smaa_out_.resource.Get() ||
+         output == encoded_.resource.Get();
+}
+
 ID3D12Resource* DaoUpscalerImpl::OnSwap(
+    ID3D12Resource* frontbuffer,
+    const D3D12_SHADER_RESOURCE_VIEW_DESC& frontbuffer_srv,
+    uint32_t render_width, uint32_t render_height,
+    D3D12_SHADER_RESOURCE_VIEW_DESC& srv_out, bool& hdr_out,
+    bool& sharpened_out, ID3D12Resource*& generated_out) {
+  // Nothing resolved: the same front buffer as the last frame, unchanged (see
+  // frame_resolves_), shown as it was shown then. The frame's bookkeeping
+  // (jitter, motion, history, frame time) is left as it is: the next frame
+  // follows the last one drawn.
+  const LastOutput& last = last_output_;
+  const bool repeat =
+      !frame_resolves_ && last.valid && frontbuffer == last.frontbuffer &&
+      render_width == last.render_size[0] &&
+      render_height == last.render_size[1] && IsCurrentOutput(last.output);
+  frame_resolves_ = 0;
+  if (repeat) {
+    srv_out = last.srv;
+    hdr_out = last.hdr;
+    sharpened_out = last.sharpened;
+    // No frame generated before it; fg_previous_ is kept, so the next frame
+    // gets one generated from the last frame given.
+    generated_out = nullptr;
+    // The frame's draws (none of the scene's in the frames seen) aren't
+    // counted for the next.
+    scene_draws_ = 0;
+    depth_tiles_ = 0;
+    single_sample_scene_drawn_ = false;
+    scene_cleared_ = false;
+    depth_less_draws_ = depth_greater_draws_ = 0;
+    return last.output;
+  }
+  ID3D12Resource* output =
+      SwapFrame(frontbuffer, frontbuffer_srv, render_width, render_height,
+                srv_out, hdr_out, sharpened_out, generated_out);
+  last_output_.valid = true;
+  last_output_.output = output;
+  last_output_.frontbuffer = frontbuffer;
+  last_output_.srv = srv_out;
+  last_output_.hdr = hdr_out;
+  last_output_.sharpened = sharpened_out;
+  last_output_.render_size[0] = render_width;
+  last_output_.render_size[1] = render_height;
+  return output;
+}
+
+ID3D12Resource* DaoUpscalerImpl::SwapFrame(
     ID3D12Resource* frontbuffer,
     const D3D12_SHADER_RESOURCE_VIEW_DESC& frontbuffer_srv,
     uint32_t render_width, uint32_t render_height,
