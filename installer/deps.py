@@ -149,6 +149,25 @@ MINGIT = Download("https://github.com/git-for-windows/git/releases/download/v2.5
 # launcher players download (scripts/build_installer_engine.py); SHA-256 as published.
 EMBED_PYTHON = Download("https://www.python.org/ftp/python/3.14.8/python-3.14.8-embed-amd64.zip",
                         "a93abe456ab01bd96d7a085b3cdb6566b3063f4241360d114142fbdb07f0a310", 12601679)
+# The Linux AppImage (scripts/build_appimage.py): umu-launcher, which runs DAORecomp.exe with
+# Proton (GPL-3.0: its license goes in the AppImage), appimagetool and the AppImage runtime,
+# all pinned releases; SHA-256 as GitHub lists them.
+UMU_VERSION = "1.4.4"
+UMU_ZIPAPP = Download(f"https://github.com/Open-Wine-Components/umu-launcher/releases/download/{UMU_VERSION}/"
+                      f"umu-launcher-{UMU_VERSION}-zipapp.tar",
+                      "eb590691841f7fad3fc3ad8fd5db4ccb87849fe7948e62b28ece7a4ee48cc851", 430080)
+UMU_LICENSE = Download(f"https://raw.githubusercontent.com/Open-Wine-Components/umu-launcher/{UMU_VERSION}/LICENSE",
+                       "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986", 35149)
+APPIMAGETOOL = Download("https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage",
+                        "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0", 15092216)
+APPIMAGE_RUNTIME = Download("https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64",
+                            "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d", 944632)
+
+# truststore 0.10.4 (installer/util.py checks download certificates with Windows' verifier
+# through it), bundled with that installer; the wheel and SHA-256 as PyPI lists them.
+TRUSTSTORE = Download("https://files.pythonhosted.org/packages/19/97/56608b2249fe206a67cd573bc93cd9896e1efb9e98bce9c163bcdc704b88/"
+                      "truststore-0.10.4-py3-none-any.whl",
+                      "adaeaecf1cbb5f4de3b1959b42d41f6fab57b2b1666adb59e89cb0b53361d981", 18660)
 
 # Intel XeSS SDK 3.0.2: XeSS-SR's headers and libxess.dll (the Intel Simplified Software
 # License lets the DLL be redistributed unmodified, with its notices). Of the archive,

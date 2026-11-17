@@ -1,9 +1,11 @@
 #include "stdafx.h"
 #include "launcher/launcher_internal.h"
+#include "launcher/appimage.h"
 
 #include <backends/imgui_impl_sdlrenderer3.h>
 
 #include "program.h"
+#include "text.h"
 
 namespace dao::launcher
 {
@@ -126,7 +128,9 @@ namespace dao::launcher
             st.steamControl = std::make_shared<SteamControl>();
             st.steamWaitStart = std::chrono::steady_clock::now();
             st.steamTask = std::async(std::launch::async,
-                [steamPath = st.steamPath, artwork = std::move(st.steamArt), exe = ProgramPath(),
+                [steamPath = st.steamPath, artwork = std::move(st.steamArt),
+                    // (From the AppImage, the shortcut starts it, on Linux.)
+                    exe = appimage::Active() ? FromUtf8(appimage::AppImagePath()) : ProgramPath(),
                     control = st.steamControl] {
                     SteamResult result;
                     const bool wasOpen = steam::IsRunning(steamPath);
@@ -154,7 +158,8 @@ namespace dao::launcher
                         if (closed)
                         {
                             // Started from Steam (Big Picture, a controller), straight into the game.
-                            const steam::Shortcut shortcut = { "Dragon Age: Origins", exe, "--play" };
+                            const steam::Shortcut shortcut = { "Dragon Age: Origins", exe, "--play",
+                                appimage::IconPath() };
                             result.accounts = steam::AddShortcut(steamPath, shortcut, artwork, result.error);
                         }
                     }
@@ -189,16 +194,23 @@ namespace dao::launcher
         {
             st.steamArt = RenderSteamArt(st);
             st.steamResult = {};
-            if (steam::IsRunning(st.steamPath))
+            st.steamStep = SteamStep::Checking;
+            st.steamCheck = std::async(std::launch::async,
+                [steamPath = st.steamPath] { return steam::IsRunning(steamPath); });
+        }
+    }
+
+    // Each frame, minimized too: the check's and the work's results taken.
+    void FinishSteamWork(State& st)
+    {
+        if (st.steamStep == SteamStep::Checking &&
+            st.steamCheck.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+        {
+            if (st.steamCheck.get())
                 st.steamStep = SteamStep::Confirm;
             else
                 StartSteamWork(st);
         }
-    }
-
-    // Each frame, minimized too: the work's result taken.
-    void FinishSteamWork(State& st)
-    {
         if (st.steamStep == SteamStep::Working &&
             st.steamTask.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {

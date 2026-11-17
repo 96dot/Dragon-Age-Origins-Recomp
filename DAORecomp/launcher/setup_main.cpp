@@ -2,6 +2,7 @@
 // It has no game code; its Install view runs the installer, which recompiles the
 // player's game into the full DAORecomp.exe, and that one is started in its place.
 #include "stdafx.h"
+#include "launcher/appimage.h"
 #include "launcher/install_runner.h"
 #include "launcher/launcher.h"
 #include "program.h"
@@ -80,6 +81,8 @@ int main(int, char**)
     }
     if (setup.installed.empty())
         return 0;
+    // (The AppImage starts this install from now on.)
+    dao::launcher::appimage::RecordInstall(setup.installed);
     // The new game's launcher, shown even if the install's settings skip it; it adds
     // the game to Steam if chosen (it has the game's art for that).
     if (!dao::StartProgram(setup.installed, setup.addToSteam ? L"--launcher --add-to-steam" : L"--launcher", 0,

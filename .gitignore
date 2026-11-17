@@ -39,3 +39,6 @@ __pycache__/
 *.pyc
 /config/*.gen.toml
 /dist/
+
+# Local test output and drafts
+/out/

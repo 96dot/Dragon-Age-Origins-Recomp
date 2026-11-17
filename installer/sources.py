@@ -60,7 +60,7 @@ def ensure(reporter, source):
     if head == source.commit and (not ours or marker.read_text() == _marker_text(source)):
         reporter.log(f"{name}: up to date ({source.commit[:10]})")
         if source.submodules:
-            _git(reporter, path, "submodule", "update", "--init", "--recursive", "--depth", "1")
+            _ensure_submodules(reporter, path)
         return
 
     if is_checkout:
@@ -75,6 +75,8 @@ def ensure(reporter, source):
     else:
         path.mkdir(parents=True, exist_ok=True)
         _git(reporter, path, "init", "-q")
+        # Ours from the start, so a run stopped mid-checkout (files but no commit) is redone.
+        (Path(_git_dir(path)) / MARKER).write_text(_marker_text(source))
     reporter.log(f"{name}: fetching {source.commit[:10]} from {source.url}")
     # (Each run sets the remote, so an interrupted first run carries on, and a new URL is used.)
     if _git_output(path, "remote", "get-url", "origin") is None:
@@ -93,8 +95,56 @@ def ensure(reporter, source):
     reporter.check_cancel()
     _git(reporter, path, "checkout", "-q", "--force", "FETCH_HEAD")
     if source.submodules:
-        _git(reporter, path, "submodule", "update", "--init", "--recursive", "--depth", "1")
+        _ensure_submodules(reporter, path)
     (Path(_git_dir(path)) / MARKER).write_text(_marker_text(source))
+
+
+# The submodules at the commits the checkout names, fetched like the sources above rather
+# than with `git submodule`: that's a shell script in Git for Windows, and its shell
+# doesn't run under Wine/Proton (where the Linux AppImage runs the installer).
+def _ensure_submodules(reporter, path):
+    tree = _git_output(path, "ls-tree", "-r", "-z", "HEAD")
+    if tree is None:
+        raise InstallError(f"Can't list the files of {path}.")
+    links = {}  # path in the checkout -> commit
+    for entry in tree.split("\0"):
+        info, _, sub = entry.partition("\t")
+        if info.startswith("160000 commit "):
+            links[sub] = info.split()[2]
+    if not links:
+        return
+    urls = {}  # path -> URL, from .gitmodules
+    names = _git_output(path, "config", "-f", ".gitmodules", "--get-regexp", r"^submodule\..*\.path$") or ""
+    for line in names.splitlines():
+        key, _, sub = line.partition(" ")
+        url = _git_output(path, "config", "-f", ".gitmodules", key.removesuffix(".path") + ".url")
+        if url:
+            urls[sub] = url
+    for sub, commit in sorted(links.items()):
+        parts = Path(sub).parts
+        url = urls.get(sub)
+        if Path(sub).is_absolute() or Path(sub).drive or ".." in parts or ".git" in (x.lower() for x in parts):
+            raise InstallError(f"{path}: the submodule path {sub!r} isn't inside it.")
+        if not url or not url.startswith("https://"):
+            raise InstallError(f"{path}: the submodule {sub} has no https URL in .gitmodules.")
+        target = path / sub
+        checkout = (target / ".git").exists()
+        if not checkout or _head(target) != commit:
+            if not checkout:
+                if target.exists() and any(target.iterdir()):
+                    raise InstallError(f"{target} exists but is not a git checkout. Move it away and run again.")
+                target.mkdir(parents=True, exist_ok=True)
+                _git(reporter, target, "init", "-q")
+            reporter.log(f"{sub}: fetching {commit[:10]} from {url}")
+            if _git_output(target, "remote", "get-url", "origin") is None:
+                _git(reporter, target, "remote", "add", "origin", url)
+            else:
+                _git(reporter, target, "remote", "set-url", "origin", url)
+            reporter.check_cancel()
+            _git(reporter, target, "fetch", "-q", "--depth", "1", "origin", commit)
+            reporter.check_cancel()
+            _git(reporter, target, "checkout", "-q", "--force", "FETCH_HEAD")
+        _ensure_submodules(reporter, target)
 
 
 def ensure_all(reporter):

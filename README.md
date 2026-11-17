@@ -147,7 +147,27 @@ Details:
   Only packages in the read-only format Xbox Live delivers them in (LIVE/PIRS) are read;
   the files you drop are left as they are.
 
-### Linux (or from the source on Windows)
+### Linux and Steam Deck
+
+Download **DAORecomp-x86_64.AppImage** from the releases, make it executable (in a file
+manager: *Properties → Allow executing*, or `chmod +x DAORecomp-x86_64.AppImage`) and run
+it. It opens the same Install page as on Windows (it runs the same `DAORecomp.exe`, with
+Proton): pick the ISO and press **Install** (to `~/Games/DAORecomp` unless you choose
+another folder). From then on it opens the launcher; **Configure → Add to Steam** adds
+the AppImage to Steam (a Steam Deck then shows the game in Game Mode).
+
+- It needs Python 3.10 or newer (SteamOS and most distributions have it).
+- Proton: the newest Proton 9 or later Steam has installed (or Proton Experimental);
+  without one it downloads UMU-Proton once. A different one: `DAO_PROTON=<its folder>`.
+  The first run also downloads Valve's Steam Linux Runtime (as Steam would), through
+  [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher), which the AppImage
+  carries.
+- Its Wine prefix, the tools and the build are in `~/.local/share/DAORecomp/` (about
+  12 GB once installed; `appimage.log` there says what happened).
+- The build takes longer than on Windows (Wine starts each compiler process more slowly):
+  about 8 minutes on a desktop CPU, longer on a Steam Deck.
+
+### From the source (Linux or Windows)
 
 Install Python 3.10+ with Tkinter, git and a C++ standard library (Debian/Ubuntu:
 `sudo apt install build-essential python3-tk git`; Fedora:
@@ -192,8 +212,9 @@ Builds from source (`dev`, or a changed checkout of a release or dev release) do
 With the launcher hidden there is no check: open it now and then (hold Shift).
 
 To update by hand, run a newer release's `DAORecomp.exe` and choose the same install
-folder (or give it `--dest`). Under Wine or Proton the launcher only links to the
-release page: update the checkout (`git pull`, or check out the new tag) and run
+folder (or give it `--dest`). The AppImage updates like Windows (the launcher's
+**Update**). Under other Wine or Proton setups the launcher only links to the release
+page: update the checkout (`git pull`, or check out the new tag) and run
 `python3 install.py --dest <install folder>`.
 
 ### What it downloads
@@ -207,7 +228,11 @@ Everything is pinned to exact versions and checked (`installer/deps.py`):
   (of its release archive, only its headers, its DLLs and NVIDIA's DLSS 310.9 and
   Reflex DLLs with their licenses are kept; DLSS Frame Generation's aren't installed yet).
 - LLVM/Clang 22 (or your system's LLVM 18+ if it has `clang-cl`, `lld-link`, `llvm-lib`
-  and `llvm-rc`), CMake and Ninja, and on Windows without git, MinGit.
+  and `llvm-rc`; also when LLVM's own Linux build can't run, as its linker needs
+  `libxml2.so.2`), CMake and Ninja, and on Windows (and in the AppImage) MinGit.
+- The AppImage, on its first run: Valve's Steam Linux Runtime and, without a Proton from
+  Steam, UMU-Proton (both by umu-launcher: the runtime from Valve's servers, UMU-Proton from
+  its GitHub releases).
 - The Microsoft C/C++ runtime headers/libraries and the Windows SDK, fetched by
   [xwin](https://github.com/Jake-Shadle/xwin). These are under
   [Microsoft's license](https://go.microsoft.com/fwlink/?LinkId=2086102), which you
@@ -254,15 +279,17 @@ read with the game closed.)
   stuck while closing, the launcher offers to end it after 15 seconds. If Windows still
   can't let go of it after that, Steam won't start again until the PC is restarted. The old
   `shortcuts.vdf` is kept beside it as `shortcuts.vdf.daorecomp-backup`.
-- **Linux:** the program is a Windows executable; run it with Wine or Proton.
+- **Linux:** run the AppImage (it starts the game with Proton), or add it to Steam from
+  the launcher (*Configure → Add to Steam*, outside Steam: Steam is closed for it and
+  started again). Installed from the source, the program is a Windows executable:
   - Steam: *Add a Non-Steam Game* → `DAORecomp.exe`, then in its properties force a
     Proton version (Proton includes vkd3d-proton for Direct3D 12).
   - Wine: install vkd3d-proton into the prefix (`winetricks vkd3d`), then run `./run.sh`.
 
-  Linux support is untested so far. The program needs Wine's support for placeholder
-  memory views (`VirtualAlloc2`/`MapViewOfFile3`) and Direct3D 12 through vkd3d-proton.
-  FSR 4 needs AMD's Windows driver and is unlikely to work under Proton; choose FSR 3.1
-  in the launcher (XeSS-SR and DLSS are untested there).
+  Tested with Proton 11.0 on an AMD GPU (RADV). AMD Anti-Lag 2 isn't available under
+  Proton, and FSR 4 needs AMD's Windows driver: choose FSR 3.1 in the launcher (XeSS-SR
+  and DLSS are untested there). On a Steam Deck, start with the 30 fps frame rate
+  (*Configure*).
 
 Most graphics settings can also be changed in the game: *Options → Graphics*. Most
 apply at once; when you leave the menu, the game lists the ones that take effect
@@ -433,9 +460,10 @@ are tested, and the traps found so far. The build details are below.
   unpacks to run. The installer is `scripts/build_installer_engine.py`'s folder:
   python.org's embeddable Python (signed by the Python Software Foundation; the
   PyInstaller exe it replaced was deleted by antivirus as a false positive) and
-  `installer.pyz`, the files tracked by git with truststore. The *Windows installer*
-  workflow builds the folder and the exe, and publishes `DAORecomp.exe` also as
-  `DAORecomp-Installer.exe`, the name launchers up to v0.5.1 update with.
+  `installer.pyz`, the files tracked by git with truststore. The *Installers* workflow
+  builds the folder and the exe, and publishes `DAORecomp.exe` (also as
+  `DAORecomp-Installer.exe`, the name launchers up to v0.5.1 update with) and the Linux
+  `DAORecomp-x86_64.AppImage` (`scripts/build_appimage.py`) around it.
 - `config/DAO.toml` and `config/DAO_switch_tables.toml` tell XenonRecomp where the game's
   functions and jump tables are; `scripts/patch_recompiler.py` adds the PowerPC
   instructions XenonRecomp lacked.

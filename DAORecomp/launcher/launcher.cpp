@@ -360,7 +360,8 @@ namespace dao::launcher
         constexpr int kIdleWaitMs = 100;
 
         Uint64 frameStart = SDL_GetTicksNS();
-        while ((!st.play && !st.quit) || st.steamStep == SteamStep::Working)
+        while ((!st.play && !st.quit) || st.steamStep == SteamStep::Checking ||
+               st.steamStep == SteamStep::Working)
         {
             const SDL_WindowFlags flags = SDL_GetWindowFlags(window);
             const bool background = !(flags & SDL_WINDOW_INPUT_FOCUS) && st.screenshotDir.empty();

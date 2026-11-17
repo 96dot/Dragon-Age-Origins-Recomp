@@ -1,0 +1,210 @@
+#!/bin/sh
+# Dragon Age: Origins (recompiled) for Linux: the AppImage's start script. It runs
+# DAORecomp.exe, the same program players download on Windows, with Proton through
+# umu-launcher (as Steam runs Windows games: in Valve's Steam Linux Runtime).
+#
+# - First run: DAORecomp.exe in this AppImage, which is setup: it installs the game
+#   (by default to ~/Games/DAORecomp). Then the install's DAORecomp.exe, which the
+#   program records in the data folder (install.txt).
+# - Proton: DAO_PROTON if set, else the newest Proton 9 or later in Steam's libraries,
+#   else Proton Experimental, else umu-launcher downloads UMU-Proton (first run only).
+# - Data (~/.local/share/DAORecomp): the Wine prefix, install.txt, the log (appimage.log).
+# - While the program runs, this script answers its requests about the Linux Steam
+#   (launcher/appimage.h), for Add to Steam: it can't see or start Linux programs itself.
+set -u
+
+HERE=$(dirname "$(readlink -f "$0")")
+SELF=${APPIMAGE:-$HERE/AppRun}
+DATA=${XDG_DATA_HOME:-$HOME/.local/share}/DAORecomp
+TITLE="Dragon Age: Origins"
+
+fail() {
+    echo "$TITLE: $1" >&2
+    if command -v zenity >/dev/null 2>&1; then
+        zenity --error --title="$TITLE" --text="$1" >/dev/null 2>&1
+    elif command -v kdialog >/dev/null 2>&1; then
+        kdialog --title "$TITLE" --error "$1" >/dev/null 2>&1
+    fi
+    exit 1
+}
+
+# A Linux path as Windows programs under Wine see it (/home/x -> Z:\home\x).
+winpath() {
+    printf 'Z:%s' "$1" | sed 's|/|\\|g'
+}
+
+mkdir -p "$DATA" || fail "Can't make the folder $DATA."
+python3 -c 'import sys; sys.exit(sys.version_info < (3, 10))' 2>/dev/null ||
+    fail "Python 3.10 or newer is needed (umu-launcher runs on it). Install python3 and run this again."
+
+# Steam: its folder (the native Steam; the Flatpak one can't start this AppImage).
+STEAM_ROOT=
+for d in "$HOME/.local/share/Steam" "$HOME/.steam/root" "$HOME/.steam/steam"; do
+    if [ -d "$d/steamapps" ]; then
+        STEAM_ROOT=$(readlink -f "$d")
+        break
+    fi
+done
+
+# Proton.
+PROTON=${DAO_PROTON:-}
+if [ -z "$PROTON" ] && [ -n "$STEAM_ROOT" ]; then
+    libraries=$( { echo "$STEAM_ROOT"
+        sed -n 's/^[[:space:]]*"path"[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' \
+            "$STEAM_ROOT/steamapps/libraryfolders.vdf" 2>/dev/null; } | sort -u)
+    newest=
+    newest_version=
+    experimental=
+    while IFS= read -r lib; do
+        for p in "$lib"/steamapps/common/Proton\ [0-9]*; do
+            # (Yours, as Steam installs it: not one someone else put on a shared drive.)
+            [ -f "$p/proton" ] && [ -O "$p/proton" ] || continue
+            version=${p##*/Proton }
+            [ "${version%%.*}" -ge 9 ] 2>/dev/null || continue
+            if [ -z "$newest_version" ] ||
+                [ "$(printf '%s\n%s\n' "$newest_version" "$version" | sort -V | tail -n 1)" = "$version" ]; then
+                newest=$p
+                newest_version=$version
+            fi
+        done
+        [ -f "$lib/steamapps/common/Proton - Experimental/proton" ] &&
+            [ -O "$lib/steamapps/common/Proton - Experimental/proton" ] &&
+            experimental="$lib/steamapps/common/Proton - Experimental"
+    done <<EOF
+$libraries
+EOF
+    PROTON=${newest:-$experimental}
+fi
+if [ -n "$PROTON" ]; then
+    export PROTONPATH="$PROTON"
+else
+    unset PROTONPATH  # umu-launcher's own: UMU-Proton, downloaded once
+fi
+
+# The program: the install, or setup.
+EXE=
+if [ -f "$DATA/install.txt" ]; then
+    EXE=$(head -n 1 "$DATA/install.txt")
+    [ -f "$EXE" ] || EXE=
+fi
+if [ -z "$EXE" ]; then
+    EXE="$HERE/DAORecomp.exe"
+    # (Setup takes the last --dest: one given to the AppImage wins.)
+    set -- --dest "$(winpath "$HOME/Games/DAORecomp")" "$@"
+fi
+
+# What the program may do on the Linux side (launcher/appimage.h).
+export DAO_APPIMAGE="$SELF"
+export DAO_APPIMAGE_DATA="$(winpath "$DATA")"
+cp -f "$HERE/daorecomp.png" "$DATA/daorecomp.png" 2>/dev/null &&
+    export DAO_APPIMAGE_ICON="$DATA/daorecomp.png"
+# Not when Steam started this: closing that Steam would end the game.
+unset DAO_HOST_STEAM
+if [ -n "$STEAM_ROOT" ] && [ -z "${SteamGameId:-}" ] && [ -z "${SteamAppId:-}" ]; then
+    export DAO_HOST_STEAM="$(winpath "$STEAM_ROOT")"
+fi
+
+STEAM_CMD=$(command -v steam 2>/dev/null || echo "$STEAM_ROOT/steam.sh")
+# Steam, started or closed from here, without this script's variables (its games would
+# get them: the AppImage's APPIMAGE/APPDIR, which other AppImage-aware programs read).
+STEAM_CLEAN="-u PROTONPATH -u APPIMAGE -u APPDIR -u ARGV0 -u OWD -u DAO_APPIMAGE -u DAO_APPIMAGE_DATA -u DAO_APPIMAGE_ICON -u DAO_HOST_STEAM -u WINEPREFIX -u GAMEID"
+steam_cmd() {
+    # shellcheck disable=SC2086
+    nohup env $STEAM_CLEAN "$STEAM_CMD" "$@" >/dev/null 2>&1 </dev/null
+}
+
+# Whether Steam is running: the process its pid file names, else any of yours named steam
+# (then "yes" is safer: the shortcut list is written only once Steam has closed).
+steam_running() {
+    pid=$(cat "$HOME/.steam/steam.pid" 2>/dev/null)
+    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = steam ]; then
+        return 0
+    fi
+    pgrep -u "$(id -u)" -x steam >/dev/null 2>&1
+}
+
+# Answers the program's requests: "<id> <command>" in host-request, "<id> <answer>" in
+# host-reply. Only these commands; anything else is "unknown". Five times a second while
+# asked, then once a second (most of the time, the game runs: nothing to answer).
+bridge() {
+    idle=0
+    while :; do
+        if [ -f "$DATA/host-request" ]; then
+            idle=0
+            # (Taken first: a new request moved in meanwhile isn't removed unanswered.)
+            mv -f "$DATA/host-request" "$DATA/host-request.taken" 2>/dev/null || continue
+            request=$(cat "$DATA/host-request.taken" 2>/dev/null)
+            rm -f "$DATA/host-request.taken"
+            id=${request%% *}
+            answer=unknown
+            case "${request#* }" in
+            steam-running)
+                if steam_running; then answer=yes; else answer=no; fi ;;
+            steam-shutdown)
+                if [ -x "$STEAM_CMD" ]; then
+                    steam_cmd -shutdown &
+                    answer=ok
+                else
+                    answer=no
+                fi ;;
+            steam-end)
+                pid=$(cat "$HOME/.steam/steam.pid" 2>/dev/null)
+                if [ -n "$pid" ] && [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = steam ] && kill "$pid" 2>/dev/null; then
+                    answer=ok
+                elif pkill -u "$(id -u)" -x steam 2>/dev/null; then
+                    answer=ok
+                else
+                    answer=no
+                fi ;;
+            steam-start)
+                if [ ! -x "$STEAM_CMD" ]; then
+                    answer=no
+                elif command -v setsid >/dev/null 2>&1; then
+                    # shellcheck disable=SC2086
+                    setsid -f env $STEAM_CLEAN "$STEAM_CMD" >/dev/null 2>&1 </dev/null
+                    answer=ok
+                else
+                    steam_cmd &
+                    answer=ok
+                fi ;;
+            esac
+            printf '%s %s\n' "$id" "$answer" >"$DATA/host-reply.part" && mv -f "$DATA/host-reply.part" "$DATA/host-reply"
+        fi
+        if [ "$idle" -lt 50 ]; then
+            idle=$((idle + 1))
+            sleep 0.2
+        else
+            sleep 1
+        fi
+    done
+}
+
+# Only when the program may ask (DAO_HOST_STEAM): not when Steam started this.
+if [ -n "${DAO_HOST_STEAM:-}" ]; then
+    rm -f "$DATA/host-request" "$DATA/host-reply"
+    bridge &
+    BRIDGE=$!
+    trap 'kill "$BRIDGE" 2>/dev/null' EXIT INT TERM
+fi
+
+export WINEPREFIX="$DATA/prefix"
+export GAMEID=umu-0
+{
+    echo "== $(date): $EXE $*"
+    echo "Proton: ${PROTONPATH:-UMU-Proton (umu-launcher's)}"
+} >"$DATA/appimage.log"
+python3 "$HERE/umu/umu-run" "$EXE" "$@" >>"$DATA/appimage.log" 2>&1
+status=$?
+# (Setup starts the installed launcher and ends: wait for this prefix's programs, with
+# the Proton's wineserver; umu-launcher's own UMU-Proton is in one of its folders.)
+WAIT_PROTON=${PROTONPATH:-}
+if [ -z "$WAIT_PROTON" ]; then
+    WAIT_PROTON=$(ls -d "$HOME/.local/share/Steam/compatibilitytools.d"/UMU-Proton-* \
+        "${XDG_DATA_HOME:-$HOME/.local/share}/umu/compatibilitytools"/UMU-Proton-* 2>/dev/null |
+        sort -V | tail -n 1)
+fi
+if [ -n "$WAIT_PROTON" ] && [ -x "$WAIT_PROTON/files/bin/wineserver" ]; then
+    WINEPREFIX="$WINEPREFIX/pfx" "$WAIT_PROTON/files/bin/wineserver" -w 2>/dev/null ||
+        WINEPREFIX="$WINEPREFIX" "$WAIT_PROTON/files/bin/wineserver" -w 2>/dev/null
+fi
+exit $status

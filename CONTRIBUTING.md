@@ -47,7 +47,7 @@ has no game code or data, and must never get any.
   the disc's ID that the installer checks; it's also disc 1 of that edition's Ultimate
   Edition). For the DLC and Title Update 6 or 7, their packages.
 - A checkout, built once by the installer: see the README's
-  [Linux (or from the source on Windows)](README.md#linux-or-from-the-source-on-windows)
+  [From the source (Linux or Windows)](README.md#from-the-source-linux-or-windows)
   for what to install first and the command. It fetches the tools into `tools/` (CMake,
   Ninja, LLVM, and the Windows SDK and C++ runtime through xwin, so no Visual Studio is
   needed), translates the game from your ISO and builds it in `build/`. After a change,
@@ -240,8 +240,9 @@ What to run depends on the change:
 - Before a release, big changes get three reviews: logic (including anything that can
   cost frames), readability (including whether the docs still match the code) and
   security (files, downloads, the network, memory patching).
-- A tag publishes a release: the *Windows installer* workflow builds `DAORecomp.exe` and
-  publishes it (also as `DAORecomp-Installer.exe`, for launchers before v0.5.2).
+- A tag publishes a release: the *Installers* workflow builds `DAORecomp.exe` and
+  publishes it (also as `DAORecomp-Installer.exe`, for launchers before v0.5.2), with the
+  Linux `DAORecomp-x86_64.AppImage` built around it.
 - `vX.Y.Z` is a release; `vX.Y.Z-dev.N` is a dev release, offered only to launchers on the
   Dev update channel. All 0.x releases are marked pre-release on GitHub; the tag decides
   the channel.

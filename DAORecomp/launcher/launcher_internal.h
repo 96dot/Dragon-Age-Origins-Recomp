@@ -104,6 +104,8 @@ namespace dao::launcher
         None,
         // The artwork is drawn before the next frame.
         Start,
+        // Whether Steam is open (in the background: from the AppImage, the Linux side answers).
+        Checking,
         // Steam is open: asking to close it.
         Confirm,
         // Closing Steam, adding the game, starting Steam again (in the background).
@@ -311,6 +313,7 @@ namespace dao::launcher
         fs::path steamPath;
         SteamStep steamStep = SteamStep::None;
         std::vector<steam::Artwork> steamArt;
+        std::future<bool> steamCheck;
         std::future<SteamResult> steamTask;
         std::shared_ptr<SteamControl> steamControl;
         std::chrono::steady_clock::time_point steamWaitStart;

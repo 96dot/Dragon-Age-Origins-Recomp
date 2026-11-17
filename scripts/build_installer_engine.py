@@ -2,7 +2,7 @@
 python.org's embeddable Python (signed by the Python Software Foundation) and
 installer.pyz, the project source with the installer and truststore. The launcher
 unpacks the folder and runs `python.exe installer.pyz`. (It replaced a PyInstaller
-program, which antivirus deleted as a false positive.) Run on Windows:
+program, which antivirus deleted as a false positive.) Run on Windows or Linux:
 
     python scripts/build_installer_engine.py        -> dist/installer-engine/
 
@@ -23,8 +23,6 @@ from installer import deps, util  # noqa: E402
 
 WORK = REPO / "build" / "installer-engine"
 OUT = REPO / "dist" / "installer-engine"
-# truststore (downloads checked with Windows' certificate verifier), pinned by hash.
-REQUIREMENTS = REPO / "scripts" / "installer-requirements.txt"
 BUNDLE_NAME = "installer.pyz"
 # Its entry point, as install.py (installer/__main__.py is run as a package module).
 MAIN_SOURCE = 'import sys\nfrom installer.__main__ import main\nsys.exit(main())\n'
@@ -49,20 +47,13 @@ def add(bundle, name, data):
 
 
 def main():
-    if sys.platform != "win32":
-        sys.exit("The installer is built on Windows (Linux users run install.py).")
     files = subprocess.run(["git", "-C", str(REPO), "ls-files", "-z"], capture_output=True, check=True,
                            text=True).stdout.split("\0")
     files = sorted(f for f in files if f and not f.startswith(".github/") and (REPO / f).is_file())
     tag = version()
 
-    # truststore's wheel (a zip; pip only downloads it), its files added to the bundle's _lib/.
-    wheels = WORK / "wheels"
-    if wheels.exists():
-        shutil.rmtree(wheels)
-    subprocess.run([sys.executable, "-m", "pip", "download", "-q", "--disable-pip-version-check",
-                    "--require-hashes", "--only-binary=:all:", "--no-deps", "-r", REQUIREMENTS,
-                    "-d", wheels], check=True)
+    # truststore's wheel (a zip), its files added to the bundle's _lib/.
+    wheels = [util.download(util.Reporter(), deps.TRUSTSTORE, WORK / "downloads")]
 
     if OUT.exists():
         shutil.rmtree(OUT)
@@ -88,7 +79,7 @@ def main():
         add(bundle, "VERSION", tag + "\n")
         for rel in files:
             add(bundle, rel, (REPO / rel).read_bytes())
-        for wheel in sorted(wheels.glob("*.whl")):
+        for wheel in wheels:
             with zipfile.ZipFile(wheel) as w:
                 # (With its .dist-info: its license.)
                 for name in w.namelist():

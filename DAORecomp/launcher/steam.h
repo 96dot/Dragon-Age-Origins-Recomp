@@ -18,12 +18,16 @@ namespace dao::launcher::steam
     struct Shortcut
     {
         std::string name;
+        // A Windows path, or a Linux one (from /: the AppImage, for the Linux Steam).
         std::filesystem::path exe;
         std::string launchOptions;
+        // The icon's file, if not the exe's own.
+        std::string icon;
     };
 
     // Steam's folder (from the registry); empty if Steam isn't installed, or under
-    // Proton or Wine (where adding the game is done in Steam itself).
+    // Proton or Wine (where adding the game is done in Steam itself) unless the
+    // AppImage gave the Linux Steam's (launcher/appimage.h).
     std::filesystem::path FindSteam();
 
     // Whether the Steam in that folder is running (not counting one that has exited).

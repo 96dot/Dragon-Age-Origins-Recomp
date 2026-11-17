@@ -103,16 +103,22 @@ LLVM_TOOLS = ["clang-cl", "lld-link", "llvm-lib", "llvm-rc"] + ([] if IS_WINDOWS
 
 
 def llvm_full_version(bindir):
-    """The version ("22.1.8") of the LLVM in bindir if it has every tool the build needs."""
+    """The version ("22.1.8") of the LLVM in bindir if it has every tool the build needs
+    and its compiler and linker run here. (LLVM's Linux build links lld-link to
+    libxml2.so.2, which newer distributions no longer have: its clang-cl runs, its linker
+    doesn't.)"""
     if not all((Path(bindir) / (t + EXE)).exists() for t in LLVM_TOOLS):
         return None
     try:
-        out = subprocess.run([str(Path(bindir) / ("clang-cl" + EXE)), "--version"], capture_output=True,
-                             text=True, timeout=30, stdin=subprocess.DEVNULL,
-                             creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0).stdout
+        outputs = [subprocess.run([str(Path(bindir) / (tool + EXE)), "--version"], capture_output=True,
+                                  text=True, timeout=30, stdin=subprocess.DEVNULL,
+                                  creationflags=subprocess.CREATE_NO_WINDOW if IS_WINDOWS else 0)
+                   for tool in ("clang-cl", "lld-link")]
     except (OSError, subprocess.TimeoutExpired):
         return None
-    match = re.search(r"clang version (\d+(?:\.\d+)*)", out)
+    if any(out.returncode != 0 for out in outputs):
+        return None
+    match = re.search(r"clang version (\d+(?:\.\d+)*)", outputs[0].stdout)
     return match.group(1) if match else None
 
 
@@ -172,7 +178,10 @@ def ensure_llvm(reporter, choice="auto"):
     archive = download(reporter, dl, DOWNLOADS)
     extract(reporter, archive, dl.top_dir, LLVM_DIR)
     if llvm_full_version(pinned) != deps.LLVM_VERSION:
-        raise InstallError(f"The LLVM download in {LLVM_DIR} lacks one of {', '.join(LLVM_TOOLS)}.")
+        raise InstallError(f"The LLVM download in {LLVM_DIR} lacks one of {', '.join(LLVM_TOOLS)}, or they "
+                           f"can't run here (its linker needs libxml2.so.2): install LLVM "
+                           f"{deps.LLVM_MIN_MAJOR}+ (clang, lld) and run again"
+                           + (" (with --llvm auto)." if choice != "auto" else "."))
     archive.unlink()
     return pinned
 

@@ -7,6 +7,7 @@
 
 #include "handle.h"
 #include "hash.h"
+#include "launcher/appimage.h"
 #include "program.h"
 #include "version.h"
 
@@ -183,9 +184,9 @@ namespace dao::launcher
     Updater::Updater() : shared_(std::make_shared<Shared>()), installRoot_(ProgramPath().parent_path())
     {
         // Updates go into an install made by the installer (its game files are
-        // what it rebuilds from), and only on Windows (under Wine/Proton the
-        // installer can't run).
-        installable_ = !IsUnderWine() && IsInstalledGame(installRoot_);
+        // what it rebuilds from): on Windows, and under Proton from the Linux
+        // AppImage (other Wine/Proton setups can't run the installer).
+        installable_ = (!IsUnderWine() || appimage::Active()) && IsInstalledGame(installRoot_);
         // The last update's installer (it may still be closing, then it goes next time).
         std::error_code ec;
         if (installable_)

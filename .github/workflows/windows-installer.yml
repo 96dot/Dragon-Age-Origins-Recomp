@@ -1,9 +1,10 @@
-# Builds DAORecomp.exe, what players download (the launcher with the installer in it).
-# Run it from the Actions tab (the exe is an artifact of the run), or push a version tag
+# Builds what players download: DAORecomp.exe (the launcher with the installer in it)
+# and, around it, the Linux AppImage (DAORecomp-x86_64.AppImage, which runs it with Proton).
+# Run it from the Actions tab (both are artifacts of the run), or push a version tag
 # to publish it on a release, as the launcher's update check reads them: vX.Y.Z for a
 # release, vX.Y.Z-dev.N for a dev release (a test build on the way to vX.Y.Z, offered
 # only to launchers on the dev update channel).
-name: Windows installer
+name: Installers
 
 on:
   workflow_dispatch:
@@ -41,8 +42,27 @@ jobs:
             dist/DAORecomp.exe
             dist/DAORecomp-Installer.exe
 
-  publish:
+  # The AppImage around that same exe (its tools are pinned downloads, run without FUSE).
+  appimage:
     needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v5
+        with:
+          name: DAORecomp
+          path: dist
+      - name: Build the AppImage
+        run: python3 scripts/build_appimage.py dist/DAORecomp.exe dist/DAORecomp-x86_64.AppImage
+      - uses: actions/upload-artifact@v5
+        with:
+          name: DAORecomp-AppImage
+          path: dist/DAORecomp-x86_64.AppImage
+
+  publish:
+    needs: [build, appimage]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
     permissions:
@@ -51,6 +71,10 @@ jobs:
       - uses: actions/download-artifact@v5
         with:
           name: DAORecomp
+          path: dist
+      - uses: actions/download-artifact@v5
+        with:
+          name: DAORecomp-AppImage
           path: dist
       - name: Publish the release
         env:
@@ -63,5 +87,6 @@ jobs:
         run: |
           flags=""
           [[ "$TAG" == v0.* || ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && flags="--prerelease"
-          gh release create "$TAG" dist/DAORecomp.exe dist/DAORecomp-Installer.exe --repo "$REPO" \
+          gh release create "$TAG" dist/DAORecomp.exe dist/DAORecomp-Installer.exe \
+            dist/DAORecomp-x86_64.AppImage --repo "$REPO" \
             --generate-notes $flags

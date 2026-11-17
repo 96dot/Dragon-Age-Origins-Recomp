@@ -34,9 +34,9 @@ namespace dao::launcher
         // Whether this build has a version to compare (a release or dev release,
         // not a build from source).
         static bool IsRelease();
-        // Whether the installer can be run on this install: not under Wine/Proton,
-        // and only on an install made by the installer. Otherwise the release page
-        // is offered instead.
+        // Whether the installer can be run on this install: on Windows, or under
+        // Proton started by the Linux AppImage (not other Wine setups), and only on an
+        // install made by the installer. Otherwise the release page is offered instead.
         bool CanInstall() const { return installable_; }
 
         // Looks for a newer release on `channel` in the background (not while

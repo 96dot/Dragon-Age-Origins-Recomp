@@ -1,7 +1,8 @@
 # Checks the Linux side of the installer without game files: fetches the pinned
 # sources, sets up clang-cl + the xwin sysroot, builds the recompiler natively,
-# and checks #include case. (Running it accepts the Microsoft build tools license
-# for the download, as install.py --accept-msvc-license does.)
+# checks #include case, and builds the setup exe and the AppImage around it. (Running
+# it accepts the Microsoft build tools license for the download, as
+# install.py --accept-msvc-license does.)
 name: Linux installer check
 
 on:
@@ -31,3 +32,9 @@ jobs:
         run: python3 -I scripts/check_constants.py
       - name: Package reader (Python)
         run: python3 -I scripts/test_stfs.py
+      # The launcher-only exe (no game needed): links real Windows code on Linux, as a
+      # player's build does, and is what the AppImage carries.
+      - name: Setup exe built on Linux
+        run: python3 scripts/build_setup_exe.py
+      - name: AppImage
+        run: python3 scripts/build_appimage.py dist/DAORecomp.exe dist/DAORecomp-x86_64.AppImage

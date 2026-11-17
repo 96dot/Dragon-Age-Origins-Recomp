@@ -1,5 +1,6 @@
 #include "stdafx.h"
 #include "launcher/launcher_internal.h"
+#include "launcher/appimage.h"
 
 #include "patches/patches.h"
 #include "version.h"
@@ -269,7 +270,9 @@ namespace dao::launcher
                 st.steamStep = SteamStep::Start;
             ImGui::EndDisabled();
             HelpText(st.steamPath.empty()
-                    ? "Steam isn't installed. (Under Proton or Wine, add the game from Steam itself.)"
+                    ? (appimage::Active()
+                          ? "Steam isn't installed, or it started the game (then the game is in your library already)."
+                          : "Steam isn't installed. (Under Proton or Wine, add the game from Steam itself.)")
                     : "Adds the game to your Steam library, with artwork from its menus. Started from Steam (Big "
                       "Picture too), it goes straight into the game. Steam has to close for it: it asks first, and "
                       "starts Steam again after.");

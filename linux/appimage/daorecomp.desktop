@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Dragon Age: Origins (recompiled)
+Comment=Dragon Age: Origins for Xbox 360, recompiled for PC
+Exec=AppRun %F
+Icon=daorecomp
+Categories=Game;RolePlaying;
+Terminal=false

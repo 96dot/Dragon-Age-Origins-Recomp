@@ -13,6 +13,7 @@
 #include "third_party/stb/stb_image_write.h"
 
 #include "files.h"
+#include "launcher/appimage.h"
 #include "program.h"
 #include "text.h"
 
@@ -251,9 +252,11 @@ namespace dao::launcher::steam
                 return 0;
             }
 
-            // The exe and its folder in quotes, as Steam writes them.
+            // The exe and its folder in quotes, as Steam writes them (with the Linux
+            // Steam's separator for a Linux path).
+            const bool unixPath = Utf8(shortcut.exe).starts_with('/');
             const std::string exe = "\"" + Utf8(shortcut.exe) + "\"";
-            const std::string folder = "\"" + Utf8(shortcut.exe.parent_path()) + "\\\"";
+            const std::string folder = "\"" + Utf8(shortcut.exe.parent_path()) + (unixPath ? "/\"" : "\\\"");
             Node* entry = nullptr;
             for (Node& item : shortcuts->children)
             {
@@ -294,7 +297,7 @@ namespace dao::launcher::steam
             SetString(*entry, "AppName", shortcut.name);
             SetString(*entry, "Exe", exe);
             SetString(*entry, "StartDir", folder);
-            SetString(*entry, "icon", Utf8(shortcut.exe));
+            SetString(*entry, "icon", shortcut.icon.empty() ? Utf8(shortcut.exe) : shortcut.icon);
             SetString(*entry, "LaunchOptions", shortcut.launchOptions);
 
             std::string out;
@@ -314,9 +317,9 @@ namespace dao::launcher::steam
         if (const wchar_t* test = _wgetenv(L"DAO_STEAM_ROOT"); test && *test)
             return test;
         // Under Proton or Wine, the Steam there is a stand-in (Steam itself runs
-        // outside, on Linux).
+        // outside, on Linux): the AppImage's, which it closes and starts for us.
         if (IsUnderWine())
-            return {};
+            return appimage::HostSteam();
         wchar_t path[MAX_PATH * 2];
         DWORD size = sizeof(path);
         if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Valve\\Steam", L"SteamPath", RRF_RT_REG_SZ, nullptr, path,
@@ -380,23 +383,41 @@ namespace dao::launcher::steam
         }
     }
 
+    // The Linux Steam, through the AppImage (its own answer when it can't be asked:
+    // taken as running, so nothing is written while it may be).
+    namespace
+    {
+        bool OnLinux(const fs::path& steam)
+        {
+            return IsUnderWine() && !steam.empty() && steam == appimage::HostSteam();
+        }
+    }
+
     bool IsRunning(const fs::path& steam)
     {
+        if (OnLinux(steam))
+            return appimage::Ask("steam-running") != "no";
         return AnySteamProcess(steam, false);
     }
 
     bool IsStuck(const fs::path& steam)
     {
+        if (OnLinux(steam))
+            return false;
         return AnySteamProcess(steam, true);
     }
 
     bool RequestShutdown(const fs::path& steam)
     {
+        if (OnLinux(steam))
+            return appimage::Ask("steam-shutdown") == "ok";
         return StartProgram(steam / "steam.exe", L"-shutdown", 0, steam);
     }
 
     bool End(const fs::path& steam)
     {
+        if (OnLinux(steam))
+            return appimage::Ask("steam-end") == "ok";
         // (None found: it's run as administrator, or another user, or it has closed.)
         const std::vector<HANDLE> processes = SteamProcesses(steam, PROCESS_TERMINATE);
         bool ended = !processes.empty();
@@ -418,6 +439,8 @@ namespace dao::launcher::steam
 
     bool Start(const fs::path& steam)
     {
+        if (OnLinux(steam))
+            return appimage::Ask("steam-start") == "ok";
         return StartProgram(steam / "steam.exe", L"", 0, steam);
     }
 
