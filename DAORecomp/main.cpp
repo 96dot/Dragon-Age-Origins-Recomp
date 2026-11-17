@@ -312,6 +312,10 @@ int main(int argc, char** argv)
     PROCESS_POWER_THROTTLING_STATE throttling{ PROCESS_POWER_THROTTLING_CURRENT_VERSION,
         PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION, 0 };
     SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &throttling, sizeof(throttling));
+    // Windows counts only the keyboard and mouse as activity, so with a controller it
+    // would start the screensaver or sleep mid-game (issue #18). The request belongs to
+    // this thread, which runs until the game exits, and Windows drops it then.
+    SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED);
 
     SelectBuild(gameRoot);
     if (!g_memory.Init())
